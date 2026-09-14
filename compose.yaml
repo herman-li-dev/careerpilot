@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16.15
+    container_name: careerpilot-postgres
+    environment:
+      POSTGRES_DB: ${CAREERPILOT_DB_NAME:-careerpilot}
+      POSTGRES_USER: ${CAREERPILOT_DB_USERNAME:-careerpilot_app}
+      POSTGRES_PASSWORD: ${CAREERPILOT_DB_PASSWORD:?Set CAREERPILOT_DB_PASSWORD before starting PostgreSQL}
+    ports:
+      - "5432:5432"
+    volumes:
+      - careerpilot-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  careerpilot-postgres-data:

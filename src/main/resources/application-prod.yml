@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: ${CAREERPILOT_DB_URL}
+    username: ${CAREERPILOT_DB_USERNAME}
+    password: ${CAREERPILOT_DB_PASSWORD}
+  flyway:
+    enabled: ${CAREERPILOT_DB_MIGRATION_ENABLED:true}
+
+server:
+  forward-headers-strategy: framework
+  error:
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+
+careerpilot:
+  ai:
+    enabled: ${CAREERPILOT_AI_ENABLED:false}
+  demo:
+    enabled: ${CAREERPILOT_DEMO_ENABLED:false}
+  auth:
+    jwt-secret: ${CAREERPILOT_JWT_SECRET}
+    cookie-secure: ${CAREERPILOT_AUTH_COOKIE_SECURE:true}

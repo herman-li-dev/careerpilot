@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: careerpilot
+  profiles:
+    active: local
+  datasource:
+    url: ${CAREERPILOT_DB_URL:jdbc:postgresql://localhost:5432/careerpilot}
+    username: ${CAREERPILOT_DB_USERNAME:careerpilot_app}
+    password: ${CAREERPILOT_DB_PASSWORD:}
+  flyway:
+    # Keep default tests database-independent; enable migrations explicitly when a database is required.
+    enabled: ${CAREERPILOT_DB_MIGRATION_ENABLED:false}
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 5242880B
+      max-request-size: 6291456B
+  ai:
+    dashscope:
+      # Read provider credentials only from the environment.
+      api-key: ${DASHSCOPE_API_KEY:}
+      chat:
+        enabled: ${careerpilot.ai.enabled}
+        options:
+          model: qwen-plus
+      embedding:
+        enabled: false
+      image:
+        enabled: false
+server:
+  port: 8123
+  servlet:
+    context-path: /api
+# Model request and response bodies must not be logged.
+logging:
+  level:
+    org.springframework.ai: INFO
+
+careerpilot:
+  demo:
+    # Public synthetic-data demo mode is opt-in and must remain disabled for normal local use.
+    enabled: ${CAREERPILOT_DEMO_ENABLED:false}
+  ai:
+    # Local startup is AI-optional. Explicitly opt in before using model-backed features.
+    enabled: ${CAREERPILOT_AI_ENABLED:false}
+  cors:
+    allowed-origins: ${CAREERPILOT_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  auth:
+    jwt-secret: ${CAREERPILOT_JWT_SECRET:}
+    session-duration: ${CAREERPILOT_AUTH_SESSION_DURATION:PT8H}
+    cookie-secure: ${CAREERPILOT_AUTH_COOKIE_SECURE:false}

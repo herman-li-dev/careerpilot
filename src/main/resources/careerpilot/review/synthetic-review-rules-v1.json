@@ -1,0 +1,41 @@
+{
+  "version": "synthetic-review-rules-v1",
+  "rules": [
+    {
+      "id": "skills-context",
+      "category": "SKILLS",
+      "priority": "HIGH",
+      "sourceId": "careerpilot-synthetic-resume-review-v1",
+      "sourceTitle": "CareerPilot synthetic resume review guide",
+      "terms": ["java", "python", "javascript", "typescript", "sql", "spring", "docker", "aws"],
+      "recommendation": "If accurate, clarify how this existing skill was used without adding unverified tools, metrics, outcomes, or responsibilities."
+    },
+    {
+      "id": "project-context",
+      "category": "PROJECTS",
+      "priority": "HIGH",
+      "sourceId": "careerpilot-synthetic-resume-review-v1",
+      "sourceTitle": "CareerPilot synthetic resume review guide",
+      "terms": ["project", "api", "application", "service", "system", "website"],
+      "recommendation": "If accurate, add concise context to this existing project statement without inventing scope, results, tools, or responsibilities."
+    },
+    {
+      "id": "experience-context",
+      "category": "EXPERIENCE",
+      "priority": "MEDIUM",
+      "sourceId": "careerpilot-synthetic-resume-review-v1",
+      "sourceTitle": "CareerPilot synthetic resume review guide",
+      "terms": ["intern", "developer", "engineer", "assistant", "co-op", "work"],
+      "recommendation": "If accurate, make the context of this existing experience easier to assess without adding unverified achievements or responsibilities."
+    },
+    {
+      "id": "education-context",
+      "category": "EDUCATION",
+      "priority": "LOW",
+      "sourceId": "careerpilot-synthetic-resume-review-v1",
+      "sourceTitle": "CareerPilot synthetic resume review guide",
+      "terms": ["university", "college", "bachelor", "master", "diploma", "degree"],
+      "recommendation": "If accurate, make this existing education evidence concise and clear without adding unverified credentials or results."
+    }
+  ]
+}

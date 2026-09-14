@@ -1,0 +1,1 @@
+-- CareerPilot database baseline. Business tables are introduced by later migrations.

@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+.agents
+careerpilot-private-knowledge
+docs
+target
+tmp
+careerpilot-frontend
+*.iml
+*.log
+.env*
+application-local.yml
+deployment-dist
