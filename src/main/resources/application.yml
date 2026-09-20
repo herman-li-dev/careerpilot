@@ -24,7 +24,12 @@ spring:
         options:
           model: qwen-plus
       embedding:
-        enabled: false
+        # RAG is opt-in; the AI environment post-processor also excludes this auto-configuration
+        # whenever careerpilot.ai.enabled is false.
+        enabled: ${careerpilot.review.rag.enabled}
+        options:
+          model: text-embedding-v3
+          dimensions: 1024
       image:
         enabled: false
 server:
@@ -43,6 +48,16 @@ careerpilot:
   ai:
     # Local startup is AI-optional. Explicitly opt in before using model-backed features.
     enabled: ${CAREERPILOT_AI_ENABLED:false}
+  review:
+    rag:
+      # Public synthetic knowledge is the only source permitted in the first RAG slice.
+      enabled: ${CAREERPILOT_RAG_ENABLED:false}
+      top-k: 8
+      similarity-threshold: ${CAREERPILOT_RAG_SIMILARITY_THRESHOLD:0.50}
+      max-context-chars: 6000
+      allowed-source-ids:
+        - careerpilot-synthetic-resume-review-v1
+      index-version: synthetic-review-rag-v1
   cors:
     allowed-origins: ${CAREERPILOT_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   auth:

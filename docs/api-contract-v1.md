@@ -399,9 +399,10 @@ request regeneration. No additional discovery, answer, scoring, voice, or RAG en
 ### `POST /api/resumes/{resumeId}/review`
 
 Runs an ephemeral review of one owned Resume whose parse status is `COMPLETED`. The request has no body.
-RR-01 first retrieves matching guidance from the bundled public synthetic rule corpus. RR-03 then asks the
-configured chat model to select only from those retrieved candidate pairs. It does not use an embedding
-model, vector store, private knowledge source, or free-form generated advice.
+The default uses the bundled public synthetic lexical rules. With both `CAREERPILOT_AI_ENABLED=true` and
+`CAREERPILOT_RAG_ENABLED=true`, local full mode can retrieve stable chunks of the bundled public synthetic
+Markdown guide with DashScope `text-embedding-v3` (1024 dimensions) and PostgreSQL pgvector. It never loads
+private knowledge or accepts free-form generated advice.
 
 Successful response:
 
@@ -410,17 +411,26 @@ Successful response:
   "success": true,
   "data": {
     "resumeId": 31,
-    "reviewType": "MODEL_ASSISTED_SYNTHETIC_LEXICAL_RULES",
-    "knowledgeBaseVersion": "synthetic-review-rules-v1",
+    "reviewType": "MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG",
+    "knowledgeBaseVersion": "synthetic-review-guide-v1",
     "suggestions": [
       {
         "category": "PROJECTS",
         "priority": "HIGH",
         "finding": "This existing projects evidence may benefit from clearer, truthful context.",
         "resumeEvidence": "Built a Java API project",
-        "recommendation": "If accurate, add concise context to this existing project statement without inventing scope, results, tools, or responsibilities.",
+        "recommendation": "If accurate, add concise context to an existing project statement without inventing scope, results, tools, or responsibilities.",
         "sourceId": "careerpilot-synthetic-resume-review-v1",
-        "sourceTitle": "CareerPilot synthetic resume review guide"
+        "sourceTitle": "CareerPilot synthetic resume review guide",
+        "citation": {
+          "sourceId": "careerpilot-synthetic-resume-review-v1",
+          "sourceTitle": "CareerPilot synthetic resume review guide",
+          "sourceVersion": "synthetic-review-guide-v1",
+          "section": "Project context",
+          "page": null,
+          "chunkIndex": 1,
+          "excerpt": "If accurate, add concise context to an existing project statement without inventing scope, results, tools, or responsibilities."
+        }
       }
     ]
   },
@@ -436,17 +446,23 @@ Rules:
 - zero matching suggestions is a valid successful result;
 - the model returns only exact server-issued `ruleId` and `evidenceId` pairs; all response text is resolved
   by the server from the retrieved candidate;
-- `reviewType` reports model-assisted selection, deterministic fallback, or an empty lexical result using the
-  three values documented in the RR-03 backlog;
+- `reviewType` retains the legacy lexical and deterministic values and adds
+  `MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG` for a vector-selected response;
+- `citation` is optional for compatibility. When present it is server-resolved from the current retrieved chunk
+  and includes title, version, section, nullable page, chunk index, and a bounded excerpt;
 - recommendations are conditional and cannot add unverified tools, metrics, outcomes, or responsibilities;
 - another user's or missing Resume returns `404 RESOURCE_NOT_FOUND`; an incomplete parse returns
   `409 INVALID_RESOURCE_STATE`;
 - the response is not persisted and does not modify Resume, Analysis, plan, or interview data;
 - private filenames, paths, source documents, rule bodies, and proprietary material are never returned.
 
-RR-03 is lexical retrieval augmented by bounded model selection, not vector RAG. Invalid model output is
-attempted at most twice; provider failure or two invalid outputs returns the safe deterministic RR-01 result
-instead of a model error. `/careerpilot-private-knowledge/` is ignored by Git but is not loaded by this endpoint.
+Vector RAG is explicitly opt-in and limited to the bundled public synthetic guide. Its retrieval uses Top K 8,
+a default 0.50 similarity threshold, source allowlisting, metadata validation, deduplication, and at most 6000
+characters of accepted chunk context. Retrieved documents are accepted only when their full server-known content,
+metadata, hash, and ID match the bundled source; citations are then constructed by the server from that accepted
+set. Invalid model JSON (including duplicates, unknown IDs, invalid pairs, or counts) and vector/provider failures
+use lexical or deterministic fallback instead of a model error. `/careerpilot-private-knowledge/` is ignored by
+Git and Docker but is not loaded by this endpoint.
 
 The model must select 1–6 exact offered rule/evidence pairs and may select no more than 2 from one category.
 The deterministic fallback applies the same response limits so repeated technology names cannot expand into a

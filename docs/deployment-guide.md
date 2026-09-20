@@ -20,7 +20,10 @@ This public mode is intentionally different from local development:
 
 - `CAREERPILOT_DEMO_ENABLED=true` resets only the exact synthetic demo account at backend startup and creates
   one synthetic Resume, JD, completed report, preparation plan, tasks, and interview session;
-- `CAREERPILOT_AI_ENABLED=false` prevents provider calls and removes the need for an API key;
+- `CAREERPILOT_AI_ENABLED=false` and `CAREERPILOT_RAG_ENABLED=false` prevent provider calls and vector retrieval,
+  removing the need for an API key;
+- `CAREERPILOT_RAG_SIMILARITY_THRESHOLD=0.50` documents the calibrated local default but is inactive while RAG
+  remains disabled;
 - the browser offers credential-free demo sign-in and hides mutation controls;
 - Nginx and the backend independently reject writes except demo sign-in/sign-out and the existing
   non-persistent Resume Review / read-existing Interview Preparation actions;
@@ -71,8 +74,9 @@ The checked-in limits target the current low-traffic portfolio host: `640m` for 
 PostgreSQL, and `96m` for Nginx. The Java heap is capped at half of its container limit. These limits prevent
 CareerPilot from claiming all memory on a 2 GB host, but they do not make that host suitable for image builds.
 
-Do not add a model key. Do not put a personal Resume, proprietary guide, session Cookie, token, or real user
-record in this environment.
+Do not add a model key or enable RAG. Do not put a personal Resume, proprietary guide, session Cookie, token, or
+real user record in this environment. The pgvector-capable database image supports the local implementation but
+the public demo indexes no vector knowledge because its AI/RAG flags remain false.
 
 ## 3. Validate and start
 
@@ -97,7 +101,7 @@ docker compose --env-file .env.production -f compose.production.yml ps
 ```
 
 The backend build context excludes `careerpilot-private-knowledge/`. The bundled CareerPilot synthetic review
-rules remain included.
+guide remains included, but public-demo AI/RAG settings keep the vector path disabled.
 
 Point the outer HTTPS proxy at `127.0.0.1:${CAREERPILOT_HTTP_PORT}`. The proxy must preserve `Host`,
 `X-Forwarded-For`, and `X-Forwarded-Proto`. Then verify:
@@ -160,5 +164,5 @@ never copy it into an image archive or source-control commit.
 
 The repository package does not automate cloud-account creation, domain purchase, DNS, or TLS issuance; the
 verified portfolio deployment configures those provider-owned concerns manually. It does not add Kubernetes,
-a container registry release workflow, analytics, monitoring SaaS, live AI, OCR, vector RAG, or real-user data
-collection.
+a container registry release workflow, analytics, monitoring SaaS, live AI/RAG in the public demo, OCR, private
+knowledge ingestion, or real-user data collection.

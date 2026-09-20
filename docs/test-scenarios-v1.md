@@ -131,7 +131,12 @@ The first sequence is the report-only milestone. The second becomes the full V1 
 
 ### M4/M5: RAG and delivery
 
-- A separate fixed RAG question set is defined when Stage 8 begins.
+- Resume Review RAG uses only the fixed public synthetic source and verifies stable chunks/metadata, source
+  filtering, the calibrated `0.50` default threshold, de-duplication, context bounds, citations, injection
+  resistance, and safe fallback.
+- The default suite uses fake vector/model dependencies; the external profile verifies Flyway V8 and actual
+  pgvector add/filter/search behavior with deterministic stub embeddings in an isolated database.
+- A future interview-knowledge RAG requires its own fixed question set and acceptance criteria.
 - Backend tests, frontend build/E2E, Docker Compose startup, and README clone-to-run steps pass before final release.
 
 ## 10. Test evidence to record

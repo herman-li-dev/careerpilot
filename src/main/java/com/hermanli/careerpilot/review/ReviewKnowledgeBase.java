@@ -50,6 +50,11 @@ class ReviewKnowledgeBase {
         return rules;
     }
 
+    ReviewRule ruleForCategory(String category) {
+        return rules.stream().filter(rule -> rule.category().equals(category)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Resume review knowledge is unavailable."));
+    }
+
     static ParsedRules parseForTest(String content) {
         try {
             return parse(content);

@@ -35,7 +35,7 @@ flowchart LR
     Docs --> ModelGate{AI explicitly enabled?}
     Analysis --> ModelGate
     Interview --> ModelGate
-    Review --> Retrieval[Synthetic lexical guidance retrieval]
+    Review --> Retrieval{Public synthetic retrieval}
 
     ModelGate -->|yes| Model[DashScope model adapters]
     ModelGate -->|no| Unavailable[Safe AI_UNAVAILABLE boundary]
@@ -46,11 +46,15 @@ flowchart LR
     Analysis --> Persist
     Plan --> Persist
     Interview --> Persist
-    Retrieval --> Fallback[Bounded deterministic fallback]
+    Retrieval -->|RAG locally enabled| Vector[DashScope embeddings + pgvector]
+    Vector --> Validate
+    Retrieval -->|RAG disabled/unavailable| Lexical[Synthetic lexical retrieval]
+    Lexical --> Fallback[Bounded deterministic fallback]
 ```
 
-The application remains one Spring Boot deployment and one PostgreSQL schema. There is no Redis, queue,
-microservice, vector database, or autonomous tool runtime in the CareerPilot flow.
+The application remains one Spring Boot deployment and one PostgreSQL schema. The optional Resume Review vector
+path uses pgvector in that existing database; there is no Redis, queue, microservice, separate vector database,
+or autonomous tool runtime.
 
 ### Hosted read-only demo
 
@@ -59,9 +63,10 @@ The public portfolio deployment is available at
 Cloudflare provides DNS only, a BaoTa-managed host Nginx terminates Let's Encrypt TLS, and the proxy forwards to
 the Docker frontend on `127.0.0.1:18080`. The backend and PostgreSQL remain private on the Compose network.
 
-Public mode contains only the seeded `example.invalid` fixture, disables live AI, hides mutation controls, and
-rejects writes independently at Nginx and backend boundaries. It demonstrates the existing report, plan,
-interview-question, and ephemeral Resume Review flows without accepting visitor data.
+Public mode contains only the seeded `example.invalid` fixture, disables live AI and RAG, hides mutation
+controls, and rejects writes independently at Nginx and backend boundaries. It demonstrates the existing report,
+plan, interview-question, and ephemeral lexical/deterministic Resume Review flows without accepting visitor
+data.
 
 ## Screenshots
 
@@ -104,8 +109,8 @@ invent an answer or require the user to practise answers inside the site.
 ![CareerPilot Resume review](assets/portfolio/06-resume-review.png)
 
 Resume Review retrieves from public synthetic guidance, keeps displayed advice server-owned, returns at most six
-diverse suggestions, and does not rewrite or persist the Resume. The screenshot intentionally shows the offline
-deterministic fallback.
+diverse suggestions, and does not rewrite or persist the Resume. Local full mode can opt into vector RAG; the
+public screenshot intentionally shows the offline deterministic fallback.
 
 ## Local startup
 
@@ -161,7 +166,12 @@ $env:DASHSCOPE_API_KEY='your-key'
 .\mvnw.cmd spring-boot:run
 ```
 
-The key stays outside source control. Default tests and the documented screenshot fixture do not call a live model.
+To enable the public-synthetic Resume Review vector path, also set
+`$env:CAREERPILOT_RAG_ENABLED='true'`. It uses DashScope `text-embedding-v3` with 1024 dimensions and the
+existing PostgreSQL pgvector database. Its calibrated default similarity threshold is `0.50`, configurable with
+`CAREERPILOT_RAG_SIMILARITY_THRESHOLD`. RAG remains off unless both AI and RAG are explicitly enabled;
+retrieval or provider failure returns to lexical/deterministic review behavior. The key stays outside source
+control. Default tests and the documented screenshot fixture do not call a live model.
 
 ## Three-to-five minute demo
 
@@ -198,15 +208,17 @@ from another user resolve as not found.
 
 ### 3:40–4:20 — Review Resume clarity
 
-Open the Resume and select “Review resume.” Explain lexical retrieval over a public synthetic guide, bounded
-model selection by server-owned IDs, category-diversity limits, and deterministic fallback. Nothing is saved or
-automatically rewritten.
+Open the Resume and select “Review resume.” Explain the default public-synthetic lexical path and the local-only
+opt-in vector path: stable guide chunks, DashScope embeddings, pgvector filtering, and server-resolved citations.
+The model selects only server-issued rule/evidence IDs; strict validation and deterministic fallback keep
+displayed advice truthful. Nothing is saved or automatically rewritten.
 
 ### 4:20–5:00 — Close on operational boundaries
 
-Show the hosted read-only demo and deployment topology. Demonstrate that AI is an explicit capability, not a
-startup prerequisite. End with the current limitations: English text only, PDF/DOCX only, no OCR, no `.doc`, no
-original-file storage, no answer scoring/voice workflow, no vector RAG, and no visitor data collection.
+Show the hosted read-only demo and deployment topology. Demonstrate that AI and RAG are explicit local
+capabilities, not startup prerequisites. End with the current limitations: English text only, PDF/DOCX only, no
+OCR, no `.doc`, no original-file storage, no answer scoring/voice workflow, no private knowledge ingestion, and
+no visitor data collection.
 
 ## Portfolio talking points
 
@@ -216,10 +228,12 @@ original-file storage, no answer scoring/voice workflow, no vector RAG, and no v
   structurally valid, semantically bounded, evidence-supported output.
 - **Why deterministic fallback?** It keeps the plan/review useful while preserving a predictable safety envelope;
   unavailable model-required creation paths fail before lifecycle state is written.
-- **Why no vector RAG yet?** The current Resume Review corpus is intentionally small and synthetic, so lexical
-  retrieval is explainable and sufficient. A vector store would be premature infrastructure.
+- **Why an opt-in vector RAG slice?** It demonstrates a real, bounded retrieval contract using only a public
+  synthetic guide: stable chunks, 1024-dimensional embeddings, pgvector filtering, citations, and fallback.
+  It does not imply that the public demo or private licensed material uses vector retrieval.
 - **How is it deployed safely?** An outer HTTPS proxy is the only public entry point; the Docker frontend binds
-  to host loopback, backend/database ports remain private, AI is disabled, and two layers reject writes.
+  to host loopback, backend/database ports remain private, AI and RAG are disabled in public mode, and two
+  layers reject writes.
 - **What would come next?** Operational maintenance and focused usability improvements only when a concrete
   portfolio need justifies them. Private licensed knowledge ingestion still requires a separate rights and
   privacy design.

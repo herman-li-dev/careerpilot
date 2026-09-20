@@ -10,6 +10,7 @@ import com.hermanli.careerpilot.api.ResourceNotFoundException;
 import com.hermanli.careerpilot.documents.InvalidDocumentStateException;
 import com.hermanli.careerpilot.documents.Resume;
 import com.hermanli.careerpilot.documents.ResumeRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +50,7 @@ public class ResumeReviewService {
     private final ReviewKnowledgeBase reviewKnowledgeBase;
     private final ObjectMapper objectMapper;
     private final ResumeReviewGenerator resumeReviewGenerator;
+    private final SyntheticVectorRag syntheticVectorRag;
 
     public ResumeReviewService(
             ResumeRepository resumeRepository,
@@ -56,10 +58,36 @@ public class ResumeReviewService {
             ObjectMapper objectMapper,
             ResumeReviewGenerator resumeReviewGenerator
     ) {
+        this(resumeRepository, reviewKnowledgeBase, objectMapper, resumeReviewGenerator, (SyntheticVectorRag) null);
+    }
+
+    @Autowired
+    public ResumeReviewService(
+            ResumeRepository resumeRepository,
+            ReviewKnowledgeBase reviewKnowledgeBase,
+            ObjectMapper objectMapper,
+            ResumeReviewGenerator resumeReviewGenerator,
+            org.springframework.beans.factory.ObjectProvider<SyntheticVectorRag> syntheticVectorRag
+    ) {
         this.resumeRepository = resumeRepository;
         this.reviewKnowledgeBase = reviewKnowledgeBase;
         this.objectMapper = objectMapper;
         this.resumeReviewGenerator = resumeReviewGenerator;
+        this.syntheticVectorRag = syntheticVectorRag.getIfAvailable();
+    }
+
+    ResumeReviewService(
+            ResumeRepository resumeRepository,
+            ReviewKnowledgeBase reviewKnowledgeBase,
+            ObjectMapper objectMapper,
+            ResumeReviewGenerator resumeReviewGenerator,
+            SyntheticVectorRag syntheticVectorRag
+    ) {
+        this.resumeRepository = resumeRepository;
+        this.reviewKnowledgeBase = reviewKnowledgeBase;
+        this.objectMapper = objectMapper;
+        this.resumeReviewGenerator = resumeReviewGenerator;
+        this.syntheticVectorRag = syntheticVectorRag;
     }
 
     public ResumeReview review(long userId, long resumeId) {
@@ -70,7 +98,12 @@ public class ResumeReviewService {
         }
         String parsedJson = resumeRepository.findCompletedParsedJsonByIdAndUserId(resumeId, userId)
                 .orElseThrow(InvalidDocumentStateException::new);
-        List<ReviewCandidate> retrievedCandidates = selectCandidates(extractEvidence(parsedJson));
+        List<Evidence> evidence = extractEvidence(parsedJson);
+        ResumeReview vectorReview = tryVectorReview(resumeId, evidence);
+        if (vectorReview != null) {
+            return vectorReview;
+        }
+        List<ReviewCandidate> retrievedCandidates = selectCandidates(evidence);
         if (retrievedCandidates.isEmpty()) {
             return new ResumeReview(
                     resumeId,
@@ -89,6 +122,91 @@ public class ResumeReviewService {
                 reviewKnowledgeBase.version(),
                 modelSuggestions == null ? suggestionsFrom(candidates) : modelSuggestions
         );
+    }
+
+    private ResumeReview tryVectorReview(long resumeId, List<Evidence> evidence) {
+        if (syntheticVectorRag == null || evidence.isEmpty()) {
+            return null;
+        }
+        try {
+            List<SyntheticVectorRag.RetrievedGuidance> guidance = syntheticVectorRag.retrieve(retrievalQuery(evidence));
+            List<ReviewCandidate> candidates = diversifyCandidates(selectVectorCandidates(evidence, guidance));
+            if (candidates.isEmpty()) {
+                return null;
+            }
+            List<ReviewSuggestion> modelSuggestions = selectWithModel(candidates);
+            if (modelSuggestions == null) {
+                return null;
+            }
+            return new ResumeReview(
+                    resumeId,
+                    "MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG",
+                    SyntheticReviewGuide.SOURCE_VERSION,
+                    modelSuggestions
+            );
+        } catch (RuntimeException exception) {
+            // Retrieval failures must not expose resume evidence or provider diagnostics.
+            log.warn("Synthetic vector review is unavailable; using lexical fallback.");
+            return null;
+        }
+    }
+
+    private String retrievalQuery(List<Evidence> evidence) {
+        int maxContextChars = syntheticVectorRag.maxContextChars();
+        StringBuilder query = new StringBuilder("Resume evidence (untrusted data):\n");
+        for (Evidence item : evidence) {
+            if (query.length() >= maxContextChars) {
+                break;
+            }
+            query.append(item.category()).append(": ").append(item.text()).append('\n');
+        }
+        return query.length() <= maxContextChars
+                ? query.toString()
+                : query.substring(0, maxContextChars);
+    }
+
+    private List<ReviewCandidate> selectVectorCandidates(
+            List<Evidence> evidence,
+            List<SyntheticVectorRag.RetrievedGuidance> guidance
+    ) {
+        List<ReviewCandidate> candidates = new ArrayList<>();
+        Set<String> pairs = new HashSet<>();
+        for (SyntheticVectorRag.RetrievedGuidance item : guidance) {
+            ReviewKnowledgeBase.ReviewRule rule = reviewKnowledgeBase.ruleForCategory(item.chunk().category());
+            for (Evidence resumeEvidence : evidence) {
+                if (!item.chunk().category().equals(resumeEvidence.category())) {
+                    continue;
+                }
+                String pair = pairKey(item.chunk().id(), resumeEvidence.id());
+                if (!pairs.add(pair)) {
+                    continue;
+                }
+                ReviewSuggestion suggestion = new ReviewSuggestion(
+                        rule.category(),
+                        rule.priority(),
+                        "This existing " + rule.category().toLowerCase(Locale.ROOT)
+                                + " evidence may benefit from clearer, truthful context.",
+                        resumeEvidence.text(),
+                        item.chunk().content(),
+                        SyntheticReviewGuide.SOURCE_ID,
+                        SyntheticReviewGuide.SOURCE_TITLE,
+                        item.citation()
+                );
+                candidates.add(new ReviewCandidate(
+                        item.chunk().id(),
+                        resumeEvidence.id(),
+                        suggestion,
+                        new ResumeReviewModelCandidate(
+                                item.chunk().id(), resumeEvidence.id(), rule.category(), rule.priority(),
+                                item.chunk().content(), resumeEvidence.text()
+                        )
+                ));
+            }
+        }
+        candidates.sort(Comparator.comparing(ReviewCandidate::suggestion, SUGGESTION_ORDER));
+        return candidates.size() <= MAX_RETRIEVED_CANDIDATES
+                ? List.copyOf(candidates)
+                : List.copyOf(candidates.subList(0, MAX_RETRIEVED_CANDIDATES));
     }
 
     private List<ReviewCandidate> selectCandidates(List<Evidence> evidence) {

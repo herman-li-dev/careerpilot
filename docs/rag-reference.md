@@ -1,182 +1,128 @@
 # CareerPilot RAG Reference
 
-## 1. Status and purpose
+## Status and boundary
 
-This document preserves the architectural decisions needed for a possible future CareerPilot retrieval-augmented
-generation (RAG) feature. It is a design reference, not an implemented feature.
+Resume Review has an explicitly opt-in RAG slice. It indexes only a bundled public synthetic Markdown guide; it
+does not load user documents, private material, or a general web corpus. `CAREERPILOT_RAG_ENABLED=false` is the
+default. The vector path also requires `CAREERPILOT_AI_ENABLED=true` and a configured DashScope key.
 
-CareerPilot currently uses a small, public, synthetic Resume Review rule set with deterministic lexical retrieval.
-It does not use embeddings, a vector database, or private third-party guidance. The public demo must continue to
-describe that behavior accurately.
+The public read-only demo keeps both flags `false`, remains synthetic-only, and uses the existing lexical or
+deterministic Review path. A locally enabled full mode can use vector retrieval, but a failure at indexing,
+embedding, retrieval, or model selection safely returns to lexical retrieval or the deterministic fallback.
+Review output remains ephemeral: it does not change or persist a Resume, Analysis, plan, or user review history.
 
-A vector RAG milestone is justified only when CareerPilot has a concrete, authorized corpus that is too large or
-too varied for the current lexical rule approach. Adding vector infrastructure merely to demonstrate the
-technology is not a sufficient product reason.
+`careerpilot-private-knowledge/` remains ignored by both Git and Docker. This milestone does not scan, extract,
+embed, transmit, or otherwise load that directory. Private licensed material requires a separate authorization,
+privacy, deletion, and re-index design before it can enter a product flow.
 
-## 2. Reusable CareerPilot foundations
-
-The future implementation should build on the CareerPilot code that already enforces product and safety
-boundaries:
-
-- authenticated users and ownership-scoped repositories;
-- safe PDF and DOCX text extraction with file, structure, size, and text-length validation;
-- PostgreSQL and Flyway migration discipline;
-- explicit AI-enabled and AI-disabled modes;
-- strict JSON parsing, structural validation, semantic validation, and deterministic fallbacks;
-- log and error-response rules that exclude document text, prompts, model output, credentials, and server paths;
-- the Resume Review candidate-selection pattern in `src/main/java/com/hermanli/careerpilot/review/`;
-- the public synthetic corpus at
-  `src/main/resources/careerpilot/review/synthetic-review-rules-v1.json`; and
-- the ignored `careerpilot-private-knowledge/` boundary for local experiments with material that must not enter
-  Git or a public image.
-
-A future RAG implementation must be designed for CareerPilot rather than reusing unrelated class names,
-prompts, metadata conventions, table layouts, or hard-coded model settings.
-
-## 3. Target pipeline
+## Public synthetic retrieval pipeline
 
 ```text
-authorized source
-  -> bounded text extraction
-  -> normalization and source versioning
-  -> deterministic chunking and metadata
-  -> embedding
-  -> ownership- or corpus-scoped vector storage
-  -> filtered retrieval
-  -> server-owned citation resolution
-  -> optional model generation
-  -> structural and evidence validation
-  -> safe response or deterministic fallback
+bundled public synthetic Markdown guide
+  -> stable section-aware chunks and server metadata
+  -> DashScope text-embedding-v3 (1024 dimensions)
+  -> Spring AI PgVectorStore / PostgreSQL pgvector
+  -> filtered, bounded vector retrieval
+  -> model selects server-issued ruleId/evidenceId pairs only
+  -> strict validation and server-resolved citation
+  -> ephemeral Resume Review response
 ```
 
-Each stage must have a narrow input and output contract. Source ingestion, retrieval, model generation, and
-Resume persistence must remain separate services. Retrieved document text is untrusted data, never system or
-developer instruction.
+The guide is split deterministically by its public sections. Every chunk has a stable ID and metadata:
+`sourceId`, `sourceTitle`, `sourceVersion`, `section`, `chunkIndex`, `contentHash`, `visibility`,
+`indexVersion`, and category. `page` is nullable: this Markdown-only source omits it from vector metadata and
+the server resolves it as `null` in a citation. The initial source allowlist contains only the bundled synthetic
+source; its visibility is `PUBLIC`.
 
-## 4. Ingestion and source governance
+## Storage and indexing
 
-Every knowledge source needs an explicit record before ingestion:
+Flyway V8 creates the PostgreSQL `vector` extension and the `review_knowledge_chunk` table:
 
-- stable `knowledgeBaseId` and `sourceId`;
-- source title suitable for display;
-- authorization and allowed-use classification;
-- visibility: public synthetic, application-owned private, or user-owned private;
-- content hash and source version;
-- ingestion time and current index version; and
-- deletion/re-index state.
+```text
+id UUID primary key
+content TEXT
+metadata JSON
+embedding vector(1024)
+```
 
-The application must reject unsupported, encrypted, damaged, empty, or oversized sources before any database
-write. Extraction limits should be independent from upload limits so compressed or unusually structured files
-cannot create unbounded text. External links, macros, scripts, and embedded objects must not execute.
+The table has an HNSW cosine index for embeddings and a metadata filter index for source, version, visibility,
+and index version. Both local and production Compose stacks use the pinned PostgreSQL 16 pgvector image. Flyway
+is the only schema owner; Spring AI `PgVectorStore` does not initialize schema automatically.
 
-Privately licensed material may be used only within the authorization granted by its owner. Local experiments
-must keep it under `careerpilot-private-knowledge/`; the material, extracted text, chunks, and embeddings must not
-be committed, included in a public Docker image, printed in logs, or returned through diagnostic endpoints.
+At application readiness, a RAG-enabled process replaces the fixed public index from the bundled guide inside
+one database transaction. A failed delete/add or embedding operation rolls back and keeps vector retrieval
+unready, so the request path falls back instead of using a partial index. The indexer uses no private directory
+and logs no guide, query, provider detail, or embedding. The model name,
+dimension, chunking behavior, normalization behavior, and index version form one compatibility contract; a
+change needs an explicit re-index/version decision rather than mixing vectors.
 
-## 5. Chunking and metadata
+## Retrieval contract
 
-Chunking must be deterministic for a given source version. Prefer section-aware boundaries, then apply a bounded
-token window with limited overlap. Exact sizes should be chosen through retrieval evaluation rather than copied
-from an unrelated implementation.
+The initial retrieval settings are deliberately bounded:
 
-Each chunk should carry server-owned metadata such as:
-
-| Field | Purpose |
+| Setting | Value |
 | --- | --- |
-| `knowledgeBaseId` | Selects the authorized corpus. |
-| `sourceId` | Resolves a citation without exposing a path. |
-| `sourceVersion` | Prevents citations from mixing content versions. |
-| `section` | Supplies concise user-facing context. |
-| `chunkIndex` | Provides deterministic ordering and re-index support. |
-| `contentHash` | Detects unchanged or duplicate content. |
-| `visibility` | Enforces public, application, or user scope. |
-| `ownerUserId` | Required for user-owned sources and never model-controlled. |
+| Similarity measure | cosine |
+| Top K | 8 |
+| Similarity threshold | 0.50 |
+| Maximum model context from chunks | 6000 characters |
+| Source scope | server allowlist, public synthetic source only |
 
-Metadata used for access control must be generated and filtered by the server. A model must never select or
-override an ownership filter.
+The `0.50` default is exposed as `CAREERPILOT_RAG_SIMILARITY_THRESHOLD`. Manual calibration on 2026-09-19
+verified repeatable vector selection for a combined synthetic Resume and successful category-specific retrieval
+for Skills, Projects, Experience, and Education, each with a server-owned citation. Thresholds `0.60` and `0.65`
+were too strict for reliable retrieval with this intentionally small four-chunk guide and safely fell back to
+lexical review. Any future guide or embedding-model change requires renewed retrieval evaluation before changing
+the default.
 
-## 6. Embeddings and vector storage
+The server applies the allowlist, source-version, `PUBLIC` visibility, and index-version filter before accepting
+a result. It then rejects unknown chunk IDs, mismatched content or metadata, duplicate content hashes, and chunks that would
+exceed the context bound. It sorts accepted chunks deterministically. Retrieved guidance is reference text, not
+instructions; it cannot override application policy or the model-output contract.
 
-The embedding model, vector dimensions, normalization behavior, and index version form one compatibility
-contract. Changing any of them requires a new index or a controlled full re-index; mixed embeddings must never
-share an index implicitly.
+When RAG is disabled, unavailable, low-relevance, or returns no valid chunks, Resume Review continues with the
+existing lexical path. If model assistance is unavailable or its output is invalid, the service uses its bounded
+deterministic fallback. These states are visible as lexical, vector, or deterministic Review types; a no-match
+result is a valid successful response.
 
-If persistent vector retrieval becomes necessary, use the existing PostgreSQL service with pgvector only after a
-dedicated design milestone. Add the extension and CareerPilot-specific tables through Flyway. Do not enable
-automatic schema creation, reuse an unrelated table, or hard-code an unexplained vector dimension.
+## Model, validation, and citations
 
-At minimum, persistence must support:
+The chat model never writes a visible recommendation, finding, Resume evidence, source name, citation, URL, or
+free-form guidance. It may only select pairs of server-issued `ruleId` and `evidenceId` from the candidate set.
+The server rejects duplicate fields, malformed JSON, unknown IDs, duplicate selections, over-count output,
+invalid rule/evidence pairs, and evidence that does not match the parsed Resume. The model never supplies a
+citation: after validating the retrieved document's ID, exact content, metadata, and hash against the bundled
+guide, the server constructs the citation and bounded excerpt from that accepted retrieval result.
 
-- corpus, source, version, and chunk identity;
-- visibility and owner scope;
-- embedding/index version;
-- idempotent re-indexing;
-- complete source deletion; and
-- auditable citation lookup without returning filesystem paths.
+The existing `POST /api/resumes/{resumeId}/review` contract stays compatible. Existing response fields and
+legacy `reviewType` values remain valid. A vector-selected success uses
+`MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG`; a suggestion may additionally contain a server-resolved citation:
 
-No pgvector or embedding dependency should remain in the build until an implemented feature needs it.
+```json
+{
+  "sourceId": "careerpilot-synthetic-resume-review-v1",
+  "sourceTitle": "CareerPilot synthetic resume review guide",
+  "sourceVersion": "synthetic-review-guide-v1",
+  "section": "Skill context",
+  "page": null,
+  "chunkIndex": 0,
+  "excerpt": "If accurate, clarify how an existing skill was used without adding unverified tools, metrics, outcomes, or responsibilities."
+}
+```
 
-## 7. Retrieval and augmentation
+The frontend displays the retrieval mode and, when present, the citation title, version, section, page or chunk
+index, and safe server-provided excerpt. It keeps legacy `sourceTitle`/`sourceId` rendering when citation is
+absent. Closing or switching a Resume clears the non-persistent result.
 
-Retrieval begins with mandatory server-side scope filters. Similarity search then uses evaluated `topK` and score
-thresholds. Results should be de-duplicated and diversified by source or section before model generation.
+## Security and test expectations
 
-Query rewriting is optional. If introduced, the original query remains authoritative, rewriting receives no
-secrets, and retrieval must fail safely when rewriting is unavailable or changes the user's intent. A direct,
-deterministic retrieval path must remain available for tests and fallback behavior.
-
-The augmentation prompt must state that retrieved chunks are untrusted reference material and cannot change
-application policy or instructions. The model should receive only the smallest relevant excerpt set plus opaque,
-server-issued citation identifiers. It must not receive private paths, database identifiers that reveal tenancy,
-or the complete corpus.
-
-## 8. Response and citation contract
-
-A RAG-backed response should return structured suggestions with server-resolved citations. Model-written source
-names, URLs, quotes, or identifiers are not trusted. Suggested Resume wording must remain conditional and must
-not add unsupported employers, roles, tools, metrics, incidents, responsibilities, or outcomes.
-
-Validation should reject:
-
-- unknown or duplicate citation identifiers;
-- citations outside the retrieved candidate set;
-- evidence that is not an exact bounded excerpt of the authorized source;
-- claims that are unsupported by both the Resume and cited guidance;
-- instructions copied from retrieved content; and
-- outputs exceeding configured counts or text lengths.
-
-Invalid model output should be retried only within a small fixed budget, then use a deterministic evidence-based
-fallback or return a safe feature-unavailable response. No partial review should be persisted.
-
-## 9. Security and privacy requirements
-
-- Enforce authentication and ownership before retrieval or citation lookup.
-- Treat uploaded and retrieved text as adversarial input.
-- Keep credentials, cookies, tokens, prompts, chunks, embeddings, and model responses out of logs.
-- Never expose local paths, provider exceptions, SQL, stack traces, or corpus bodies in errors.
-- Apply upload, extraction, chunk-count, query, retrieval, and response limits.
-- Define source deletion and re-index behavior before allowing private ingestion.
-- Keep the public demo synthetic-only and AI-optional.
-- Do not use customer documents to build a shared corpus.
-- Do not send licensed private material to a hosted model unless its authorization and the deployment policy
-  explicitly allow that transfer.
-
-## 10. Evaluation and release gate
-
-Default tests must use synthetic documents, deterministic embeddings or a fake retriever, and fake model output.
-They must not call a live embedding or chat provider.
-
-Before release, evaluate:
-
-- retrieval relevance on a versioned synthetic query set;
-- ownership and corpus-filter isolation;
-- exact citation resolution;
-- duplicate and low-relevance suppression;
-- prompt-injection resistance in retrieved text;
-- source update, deletion, and complete re-index behavior;
-- invalid-model-output fallback;
-- log and error privacy; and
-- startup and existing CareerPilot flows with RAG disabled.
-
-The feature may be described as vector RAG only after embeddings, scoped vector retrieval, and citation-grounded
-generation are implemented and verified end to end.
+- Authenticate and ownership-check the Resume before review; vector metadata never grants access by itself.
+- Treat guide and Resume text as untrusted input. Do not log prompts, chunks, embeddings, credentials, model
+  bodies, provider errors, paths, or private material.
+- Use deterministic fake embeddings/vector stores and fake model output in default tests; no test needs a live
+  provider.
+- Verify deterministic chunking/hash metadata, database migration, top-K/threshold/filter/dedupe/context bounds,
+  citation provenance and excerpt bounds, injection resistance, validation rejection, fallback behavior, and
+  RAG-disabled startup.
+- Preserve the public-demo boundary: AI and RAG off, synthetic data only, read-only browser/API behavior, and no
+  private knowledge.

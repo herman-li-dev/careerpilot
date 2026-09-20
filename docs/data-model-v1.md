@@ -11,7 +11,8 @@ Status: Implemented through RR-03 and Flyway V7 on 2026-09-01.
 - Treat model output as untrusted until it passes validation.
 - Persist task status before and after model calls so failures are visible and retryable.
 - Enforce ownership in every user-facing query. A supplied record ID is never sufficient authorization.
-- Do not add Redis, a message queue, event sourcing, or a separate vector database for V1.
+- Do not add Redis, a message queue, event sourcing, or a separate vector database for V1; the bounded public
+  synthetic review index uses the existing PostgreSQL database with pgvector.
 
 ## 2. Relationship overview
 
@@ -239,22 +240,27 @@ IP-01 adds only the two V7 tables above. It does not reuse `analysis_report.ques
 IP-02 is a read/create browser presentation of the same immutable session and adds no table, column, index,
 migration, answer state, score, audio, or retrieval data.
 
-RR-01 adds no table, column, index, or Flyway migration. Its public synthetic rules are an immutable
-classpath resource, and its Resume Review response is computed per request and not persisted. It stores no
-review history, source document, source path, document chunk, embedding, or vector. The endpoint reuses the
-existing owned `resume` row and requires its validated `parsed_json` to be complete.
+RR-01's Review response is computed per request and is not persisted. It stores no review history, source path,
+or user-provided knowledge. The endpoint reuses the existing owned `resume` row and requires its validated
+`parsed_json` to be complete.
 
 RR-02 keeps that boundary unchanged. Browser state exists only while the Resume detail dialog is open and
 is not written to PostgreSQL, the Resume record, browser storage, or another CareerPilot resource.
 
-RR-03 also adds no table, column, index, or migration. Server-issued rule/evidence IDs, retrieved candidates,
-model selections, rejection categories, and fallback state exist only during one request. The model selection
-is not a persisted user decision, review history, chunk, embedding, or vector.
+RR-03 server-issued rule/evidence IDs, retrieved candidates, model selections, rejection categories, fallback
+state, and citation resolution exist only during one request. The model selection is not a persisted user
+decision or review history.
+
+RAG-01 adds Flyway V8 for the public synthetic knowledge index. `review_knowledge_chunk` contains `id UUID`,
+`content TEXT`, `metadata JSON`, and `embedding vector(1024)`. V8 creates the PostgreSQL `vector` extension,
+an HNSW cosine embedding index, and a metadata filter index over source ID/version, visibility, and index
+version. The table stores only the bundled public synthetic guide's stable chunks and server metadata; it does
+not store Resume text, review output, private knowledge, or user ownership state. Re-indexing the fixed guide
+does not create a user-visible resource.
 
 OPS-01 adds no table, column, index, or Flyway migration. AI availability is process configuration, not
 persisted user or resource state. Disabling AI does not change historical analyses, reports, plans, tasks,
 interview sessions, parsed documents, or upload storage boundaries.
 
-No chat-history, embedding, or document-chunk table is created before a concrete feature requires it.
-At Stage 8, RAG tables should be designed around the actual chosen documents and retrieval tests
-rather than added speculatively now.
+No chat-history or user-document embedding table is created. Any future private or user-owned corpus needs a
+separate schema and authorization design; it must not reuse the public synthetic index implicitly.

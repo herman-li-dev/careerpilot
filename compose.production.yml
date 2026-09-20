@@ -2,7 +2,7 @@ name: careerpilot-demo
 
 services:
   database:
-    image: postgres:16.15-alpine
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
     platform: linux/amd64
     restart: unless-stopped
     mem_limit: 320m
@@ -37,6 +37,8 @@ services:
       CAREERPILOT_DB_PASSWORD: ${CAREERPILOT_DB_PASSWORD:?Set CAREERPILOT_DB_PASSWORD}
       CAREERPILOT_DB_MIGRATION_ENABLED: "true"
       CAREERPILOT_AI_ENABLED: "false"
+      CAREERPILOT_RAG_ENABLED: "false"
+      CAREERPILOT_RAG_SIMILARITY_THRESHOLD: ${CAREERPILOT_RAG_SIMILARITY_THRESHOLD:-0.50}
       CAREERPILOT_DEMO_ENABLED: "true"
       CAREERPILOT_JWT_SECRET: ${CAREERPILOT_JWT_SECRET:?Set CAREERPILOT_JWT_SECRET}
       CAREERPILOT_AUTH_COOKIE_SECURE: ${CAREERPILOT_AUTH_COOKIE_SECURE:-true}

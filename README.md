@@ -28,7 +28,8 @@ Resume + job description
 - Pasted Resume/JD CRUD plus safe PDF/DOCX Resume text extraction.
 - Structured parsing, canonical skill-gap matching, and a 0–100 estimated match.
 - SSE report progress, persisted plans, task updates, regeneration, and archived-task isolation.
-- Evidence-grounded interview questions and non-persistent Resume clarity review.
+- Evidence-grounded interview questions and non-persistent Resume clarity review, with an opt-in public-synthetic
+  vector RAG path and lexical/deterministic fallback.
 - Strict model-output validation, deterministic safe fallbacks, privacy-safe logging, and AI-optional startup.
 
 ## Technology
@@ -37,7 +38,7 @@ Resume + job description
 | --- | --- |
 | Frontend | Vue 3, Vue Router, Axios, Vite |
 | Backend | Java 21, Spring Boot 3.4.4, Spring JDBC, Spring AI Alibaba |
-| Data | PostgreSQL 16, Flyway migrations |
+| Data | PostgreSQL 16 with pgvector, Flyway migrations |
 | Documents | Apache PDFBox, Apache POI |
 | Delivery | Docker Compose, Nginx, GitHub Actions, DigitalOcean |
 
@@ -52,8 +53,10 @@ Resume + job description
 - **Safe document ingestion:** upload validation checks extension, MIME type, file signature, parser-confirmed
   structure, size, extracted-text length, encryption, and textless/scanned-PDF outcomes. Original files are not
   stored.
+- **Bounded retrieval:** the optional vector path indexes only a bundled public synthetic guide in PostgreSQL
+  pgvector, filters and validates returned chunks, and resolves citations on the server.
 - **Deliberate architecture:** CareerPilot remains a modular monolith with one application database; it does not
-  add queues, microservices, or vector infrastructure without a demonstrated need.
+  add queues or microservices.
 
 The complete architecture, screenshots, design decisions, safety boundaries, and 3–5 minute walkthrough are in
 the [portfolio guide](docs/portfolio-guide.md). The implemented REST and SSE behavior is documented in the
@@ -67,7 +70,7 @@ question set. AI calls, uploads, registration, report creation, and other persis
 The public demo is deployed on a small DigitalOcean host behind an HTTPS reverse proxy. See the
 [read-only demo deployment guide](docs/deployment-guide.md) for the verified topology and update procedure.
 The production Compose stack exposes only its frontend Nginx on host loopback, creates an isolated synthetic
-account on startup, keeps AI off, and rejects non-whitelisted writes in both Nginx and the backend.
+account on startup, keeps AI and RAG off, and rejects non-whitelisted writes in both Nginx and the backend.
 
 ## Local startup
 
@@ -101,11 +104,25 @@ npm run dev -- --host localhost --port 3000
 Open `http://localhost:3000/`. If port 3000 is unavailable, choose another frontend port and set
 `CAREERPILOT_CORS_ALLOWED_ORIGINS` to that exact origin before starting the backend.
 
-To use live parsing, new match reports, or new interview-question generation, explicitly enable AI in the
-backend terminal and provide the provider key through the environment:
+To use live parsing, new match reports, new interview-question generation, or model-assisted lexical Resume
+Review, explicitly enable AI in the backend terminal and provide the provider key through the environment:
 
 ```powershell
 $env:CAREERPILOT_AI_ENABLED='true'
+$env:DASHSCOPE_API_KEY='your-key'
+.\mvnw.cmd spring-boot:run
+```
+
+To opt into the Resume Review vector path as well, set both AI and RAG flags before startup. It indexes only the
+bundled public synthetic Markdown guide with DashScope `text-embedding-v3` at 1024 dimensions into PostgreSQL
+pgvector. The calibrated default similarity threshold is `0.50`; override it only through
+`CAREERPILOT_RAG_SIMILARITY_THRESHOLD` after retrieval evaluation. If indexing, embedding, retrieval, or model
+selection is unavailable, Resume Review safely returns to lexical or deterministic behavior; it never persists
+or modifies the Resume.
+
+```powershell
+$env:CAREERPILOT_AI_ENABLED='true'
+$env:CAREERPILOT_RAG_ENABLED='true'
 $env:DASHSCOPE_API_KEY='your-key'
 .\mvnw.cmd spring-boot:run
 ```
@@ -122,8 +139,6 @@ cd careerpilot-frontend
 npm run build
 ```
 
-Default automated tests use deterministic fakes and do not call a live model.
-
-The current backend suite contains **144 automated tests**. GitHub Actions runs it together with normal and
-read-only-demo frontend production builds on pushes and pull requests. CI validates the deployable artifact; it
-does not publish secrets, call a live model, or deploy to a third party.
+Default automated tests use deterministic fakes and do not call a live model. GitHub Actions runs backend tests
+together with normal and read-only-demo frontend production builds on pushes and pull requests. CI validates the
+deployable artifact; it does not publish secrets, call a live model, or deploy to a third party.

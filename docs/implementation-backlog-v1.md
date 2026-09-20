@@ -11,8 +11,8 @@ relevant tests, and receive a diff review before the next task starts. Do not co
 because they belong to the same milestone.
 
 A task may introduce only the dependency, schema, API, or UI change stated in that task. Redis,
-message queues, microservices, RAG, and autonomous tools are not part of this backlog. U-01 is the
-explicitly scoped exception that adds request-only PDF/DOCX Resume upload after the pasted-text flow stabilized.
+message queues, microservices, unbounded RAG, and autonomous tools are not part of this backlog. U-01 adds
+request-only PDF/DOCX Resume upload; RAG-01 later adds one explicitly bounded public-synthetic pgvector slice.
 
 ## 2. Current baseline
 
@@ -910,12 +910,41 @@ Completed on 2026-09-12:
 No HTTP path, database schema, Flyway migration, CareerPilot behavior, persisted data, running local service, or
 public deployment changed. Licensing remains a separate owner decision.
 
+### `RAG-01` — Public-synthetic Resume Review vector RAG — Completed
+
+Scope: Extend the existing ephemeral Resume Review with a real, opt-in vector path while retaining its lexical
+and deterministic fallbacks. Index only the bundled public synthetic Markdown guide; do not ingest private
+licensed material or change Resume, Analysis, plan, interview, archiving, regeneration, or max-eight behavior.
+
+Implemented boundaries:
+
+- stable section chunks carry source/version/section/chunk/hash/visibility/index metadata and fixed UUIDs;
+- Flyway V8 owns a 1024-dimensional pgvector table with cosine HNSW and metadata indexes;
+- DashScope `text-embedding-v3`, Spring AI `PgVectorStore`, Top K 8, threshold 0.50, source/version filters,
+  hash de-duplication, and a 6000-character context cap form the opt-in local path;
+- index replacement is transactional; unavailable indexing, embedding, retrieval, or model selection returns to
+  the existing lexical or deterministic path without partial Review persistence;
+- the model selects only offered chunk/evidence pairs; exact Resume evidence, recommendations, and bounded
+  citations are validated/resolved by the server;
+- AI and RAG remain disabled in the hosted read-only demo, and `careerpilot-private-knowledge/` remains outside
+  Git and Docker and is never loaded.
+
+Verification completed on 2026-09-15, with live retrieval calibration completed on 2026-09-19:
+
+- the default offline Maven suite passed 155/155 tests;
+- an isolated pgvector container passed 4/4 external migration and real add/filter/search/delete tests using a
+  deterministic stub embedding model;
+- live DashScope verification confirmed all four knowledge categories and citations at threshold `0.50`; three
+  combined-Resume runs entered vector RAG, while `0.60` and `0.65` safely fell back to lexical review;
+- normal and read-only-demo frontend builds passed with 92 modules transformed;
+- both Compose configurations and `git diff --check` passed.
+
 ## 17. Deferred after DEPLOY-02
 
 - legacy `.doc`, image uploads, OCR, scanned-PDF text recognition, original-file storage, and Resume download;
 - optional follow-up questions only when a future workflow has a concrete missing decision that changes output;
-- interview answers, completion state, scoring, voice simulation, vector knowledge-base RAG, and pgvector;
-- private licensed knowledge ingestion, local-only embedding/model execution, vector retrieval, free-form
+- interview answers, completion state, scoring, voice simulation, and interview knowledge-base RAG;
+- private licensed knowledge ingestion, unrestricted/local-private vector retrieval, free-form
   generated Resume advice, and Resume Review persistence;
 - job-board integrations or scraping;
 - notifications, calendars, Redis, queues, microservices, and provider-specific cloud provisioning;

@@ -185,11 +185,10 @@
             <div><p class="eyebrow">RESUME REVIEW</p><h3 id="resume-review-title">Truthful clarity suggestions</h3></div>
             <button class="secondary-button" type="button" :disabled="resumeReviewBusy" @click="reviewSelectedResume">{{ resumeReviewBusy ? 'Reviewing…' : 'Review resume' }}</button>
           </div>
-          <p class="review-boundary">Uses public synthetic guidance with model-assisted lexical retrieval, not vector RAG. Suggestions are not saved and do not modify your Resume; unavailable models or invalid output safely use a deterministic fallback.</p>
+          <p class="review-boundary">Uses public synthetic guidance. Vector RAG is used only when enabled locally; otherwise suggestions use model-assisted lexical retrieval or a deterministic fallback. Suggestions are not saved and do not modify your Resume.</p>
           <p v-if="resumeReviewMessage" class="message error" role="alert">{{ resumeReviewMessage }}</p>
           <template v-else-if="resumeReview">
-            <p v-if="resumeReview.reviewType === 'MODEL_ASSISTED_SYNTHETIC_LEXICAL_RULES'" class="review-boundary">Model-assisted selection.</p>
-            <p v-else-if="resumeReview.reviewType === 'SYNTHETIC_LEXICAL_RULES_FALLBACK'" class="review-boundary">Deterministic fallback.</p>
+            <p class="review-boundary" role="status">{{ reviewRetrievalDescription(resumeReview) }}</p>
             <p v-if="resumeReview.suggestions.length === 0" class="empty-state">No suggestions apply to this parsed Resume.</p>
             <ol v-else class="resume-review-list">
               <li v-for="suggestion in resumeReview.suggestions" :key="`${suggestion.category}-${suggestion.sourceId}-${suggestion.resumeEvidence}`" class="resume-review-card">
@@ -197,7 +196,12 @@
                 <p><strong>Finding:</strong> {{ suggestion.finding }}</p>
                 <p class="task-evidence"><strong>Resume evidence:</strong> {{ suggestion.resumeEvidence }}</p>
                 <p><strong>Recommendation:</strong> {{ suggestion.recommendation }}</p>
-                <p class="review-source"><strong>Source:</strong> {{ suggestion.sourceTitle }} ({{ suggestion.sourceId }})</p>
+                <template v-if="suggestion.citation">
+                  <p class="review-source"><strong>Source:</strong> {{ citationTitle(suggestion.citation) }}<span v-if="suggestion.citation.sourceVersion"> · Version {{ suggestion.citation.sourceVersion }}</span></p>
+                  <p class="review-source"><strong>Location:</strong> {{ citationLocation(suggestion.citation) }}</p>
+                  <blockquote v-if="suggestion.citation.excerpt" class="review-excerpt"><strong>Excerpt:</strong> {{ suggestion.citation.excerpt }}</blockquote>
+                </template>
+                <p v-else class="review-source"><strong>Source:</strong> {{ suggestion.sourceTitle }} ({{ suggestion.sourceId }})</p>
               </li>
             </ol>
           </template>
@@ -488,6 +492,36 @@ function formatStatus(status) {
   return status.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, character => character.toUpperCase())
 }
 
+function reviewRetrievalDescription(review) {
+  if (review.reviewType === 'MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG') {
+    return 'Vector RAG retrieval selected these suggestions.'
+  }
+  if (review.reviewType === 'MODEL_ASSISTED_SYNTHETIC_LEXICAL_RULES') {
+    return 'Model-assisted lexical retrieval selected these suggestions.'
+  }
+  if (review.reviewType === 'SYNTHETIC_LEXICAL_RULES_FALLBACK') {
+    return 'Deterministic lexical fallback selected these suggestions.'
+  }
+  return review.suggestions.length === 0
+    ? 'Deterministic lexical retrieval found no applicable guidance.'
+    : 'Deterministic lexical retrieval selected these suggestions.'
+}
+
+function citationTitle(citation) {
+  return citation.sourceTitle || citation.sourceId
+}
+
+function citationLocation(citation) {
+  const location = []
+  if (citation.section) location.push(`Section: ${citation.section}`)
+  if (citation.page !== null && citation.page !== undefined) {
+    location.push(`Page ${citation.page}`)
+  } else if (citation.chunkIndex !== null && citation.chunkIndex !== undefined) {
+    location.push(`Chunk ${citation.chunkIndex}`)
+  }
+  return location.join(' · ')
+}
+
 function mostRecent(items) {
   return [...items].sort((left, right) => new Date(right.updatedAt || right.createdAt || 0) - new Date(left.updatedAt || left.createdAt || 0))[0]
 }
@@ -562,7 +596,7 @@ h1, h2, h3, p { margin: 0; } h1 { font-size: clamp(2.25rem, 5vw, 4rem); letter-s
 .demo-login-button { width: 100%; margin-top: 24px; }
 label { display: grid; gap: 7px; color: #35405a; font-size: .9rem; font-weight: 700; } input, textarea { width: 100%; padding: 11px 12px; border: 1px solid #cdd4e4; border-radius: 9px; background: #fff; color: #182033; font: inherit; } textarea { resize: vertical; line-height: 1.5; } input:focus, textarea:focus { outline: 3px solid rgba(89, 103, 216, .18); border-color: #5967d8; }
 .workspace { max-width: 1220px; margin: 0 auto; }.workspace-heading { margin-bottom: 24px; }.document-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }.analysis-panel { margin-top: 28px; padding: 24px; background: #fff; border: 1px solid #e3e6f0; border-radius: 16px; }.analysis-form { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; }.analysis-form select { padding: 11px 12px; border: 1px solid #cdd4e4; border-radius: 9px; font: inherit; }.analysis-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 18px; }.analysis-card { padding: 14px; border: 1px solid #e4e8f2; border-radius: 11px; }.document-column { padding: 24px; background: #fff; border: 1px solid #e3e6f0; border-radius: 16px; }.column-heading { min-height: 68px; }.document-list { display: grid; gap: 12px; }.empty-state { padding: 20px 0; color: #7c8598; text-align: center; }
-.resume-review-section { margin-top: 26px; padding-top: 24px; border-top: 1px solid #e3e6f0; }.review-boundary { margin: 14px 0; color: #64708a; font-size: .9rem; line-height: 1.5; }.resume-review-list { display: grid; gap: 12px; margin: 18px 0 0; padding-left: 24px; }.resume-review-card { padding: 16px; border: 1px solid #e4e8f2; border-radius: 11px; }.resume-review-card > p { margin-top: 9px; color: #46516a; line-height: 1.45; }.review-source { color: #64708a !important; font-size: .84rem; }
+.resume-review-section { margin-top: 26px; padding-top: 24px; border-top: 1px solid #e3e6f0; }.review-boundary { margin: 14px 0; color: #64708a; font-size: .9rem; line-height: 1.5; }.resume-review-list { display: grid; gap: 12px; margin: 18px 0 0; padding-left: 24px; }.resume-review-card { padding: 16px; border: 1px solid #e4e8f2; border-radius: 11px; }.resume-review-card > p { margin-top: 9px; color: #46516a; line-height: 1.45; }.review-source { color: #64708a !important; font-size: .84rem; }.review-excerpt { margin: 10px 0 0; padding: 9px 12px; border-left: 3px solid #cfd5ff; color: #46516a; font-size: .88rem; line-height: 1.45; }
 .document-card { border: 1px solid #e4e8f2; border-radius: 11px; padding: 14px; }.document-open { width: 100%; display: grid; gap: 5px; border: 0; padding: 0; background: transparent; color: #1c2741; text-align: left; }.document-open:hover strong { color: #5967d8; }.document-open span { font-size: .82rem; }.card-footer { margin-top: 13px; }.status { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: #edf0f7; color: #52607a; font-size: .72rem; font-weight: 800; }.status.completed { color: #137a4a; background: #e4f6ed; }.status.failed { color: #a44917; background: #fff0e8; }.status.running { color: #3c51b5; background: #e9ecff; }.parse-error { margin-top: 10px; color: #a44917; font-size: .82rem; }
 .primary-button, .secondary-button, .text-button { border: 0; border-radius: 9px; font: inherit; font-weight: 750; }.primary-button { padding: 11px 15px; background: #5967d8; color: white; }.primary-button:hover:not(:disabled) { background: #4655c9; }.secondary-button { padding: 10px 14px; background: #e9ecff; color: #4050b6; }.text-button { padding: 4px 0; background: transparent; color: #4d5bc8; text-align: left; }.text-button:hover:not(:disabled) { color: #2739a8; text-decoration: underline; } button:disabled { cursor: not-allowed; opacity: .55; }
 .message { margin: 16px 0; padding: 10px 12px; border-radius: 9px; font-size: .9rem; }.message.error { color: #982f31; background: #fff0f0; }.message.success { color: #1d7748; background: #e9f8ef; }.dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 20px; background: rgba(24, 32, 51, .42); }.document-dialog { width: min(760px, 100%); max-height: 85vh; overflow: auto; padding: 26px; background: #fff; border-radius: 16px; }.status-row { margin: 20px 0; } pre { overflow: auto; padding: 16px; border-radius: 10px; background: #f5f7fb; color: #24304d; font: .9rem/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }

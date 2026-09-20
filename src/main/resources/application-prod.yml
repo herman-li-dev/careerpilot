@@ -16,6 +16,10 @@ server:
 careerpilot:
   ai:
     enabled: ${CAREERPILOT_AI_ENABLED:false}
+  review:
+    rag:
+      # Public deployment keeps external embedding and retrieval explicitly disabled.
+      enabled: ${CAREERPILOT_RAG_ENABLED:false}
   demo:
     enabled: ${CAREERPILOT_DEMO_ENABLED:false}
   auth:

@@ -15,7 +15,7 @@ English resume text (pasted or extracted from PDF/DOCX) + English job-descriptio
 → structured match report
 → 14-day preparation plan
 → evidence-grounded interview question set
-→ optional model-assisted lexical Resume Review suggestions from public synthetic guidance
+→ optional public-synthetic Resume Review suggestions with vector, lexical, or deterministic retrieval
 ```
 
 CareerPilot supports preparation and editing decisions. It does not guarantee interviews, rank candidates for employers, or make hiring decisions.
@@ -156,24 +156,30 @@ Rules:
   each question's type, assessment goal, exact source evidence, and preparation tip.
 - Reloading the page does not regenerate questions: the same browser action receives the existing session.
 
-### Resume review — RR-01
+### Resume review — RR-01 through RAG-01
 
 - One owned, successfully parsed Resume can be reviewed through an ephemeral backend API.
-- RR-01 retrieves matching guidance from a small public synthetic corpus using deterministic local lexical
-  rules; it does not claim to be vector RAG and does not use a model or external service.
+- The default path uses the existing public-synthetic lexical rules. When both
+  `CAREERPILOT_AI_ENABLED=true` and `CAREERPILOT_RAG_ENABLED=true`, local full mode may retrieve stable chunks
+  from the bundled public synthetic Markdown guide using DashScope embeddings and PostgreSQL pgvector.
 - Every suggestion cites a verbatim parsed Resume value and uses conditional language that cannot add an
   unverified tool, metric, outcome, responsibility, credential, or experience.
-- Results are stable, de-duplicated, limited to 12, and are not persisted or applied to the Resume.
+- Retrieval uses the calibrated default similarity threshold `0.50`, is source-allowlisted and de-duplicated,
+  and is bounded to eight vector candidates and 6000 context characters before displaying at most six diverse
+  suggestions. Results are not persisted or applied to the Resume.
 - No paid or proprietary source is included, loaded, exposed, or required. A precisely ignored private
   directory reserves a safe local boundary for a separately authorized future experiment.
-- In the completed Resume detail dialog, the user can request and inspect the suggestion cards, including
-  their priority, exact Resume evidence, recommendation, and public synthetic source. Closing the dialog
-  clears the result, and the page does not save or apply a rewrite.
-- After lexical retrieval, the model may select only server-offered rule/evidence ID pairs. It cannot write
-  findings, recommendations, evidence, categories, priorities, or sources; all displayed text remains
-  server-resolved. Two invalid outputs or provider failure use the complete deterministic candidate set.
-- The browser identifies model-assisted selection versus deterministic fallback and describes the feature as
-  lexical retrieval rather than vector RAG.
+- In the completed Resume detail dialog, the user can request and inspect suggestion cards with their priority,
+  exact Resume evidence, recommendation, source, retrieval mode, and—when vector retrieval is used—a
+  server-resolved citation (title, version, section, page or chunk, bounded excerpt). Closing the dialog clears
+  the result, and the page does not save or apply a rewrite.
+- After lexical or vector retrieval, the model may select only server-offered rule/evidence ID pairs. It cannot
+  write findings, recommendations, evidence, categories, priorities, sources, or citations; all displayed text
+  remains server-resolved. Strict JSON, duplicate, unknown-ID, count, pair, and Resume-evidence validation plus
+  full retrieved-chunk metadata/hash validation protects this boundary. The server creates citations only from
+  accepted retrieved chunks. Invalid output or provider/vector failure uses the existing lexical or deterministic
+  fallback.
+- The hosted public demo is read-only, synthetic-only, and keeps AI/RAG disabled; it never claims vector use.
 
 ## 6. Language policy
 
@@ -207,8 +213,8 @@ Rules:
 - Multilingual UI or translation.
 - Interview-answer capture, completion state, scoring, generated answers, STAR-story writing, voice simulation,
   and interview knowledge-base RAG.
-- Private licensed knowledge ingestion, vector Resume Review RAG, free-form generated Resume advice,
-  persisted review history, and automatic Resume rewriting.
+- Private licensed knowledge ingestion, free-form generated Resume advice, persisted review history, and
+  automatic Resume rewriting.
 - Redis, message queues, microservices, service discovery, Kubernetes, or distributed processing.
 - ReAct/MCP tools, arbitrary terminal execution, unrestricted downloads, and autonomous modification of user data.
 
@@ -235,8 +241,9 @@ Local development is AI-optional. The default process starts with model-backed f
 authentication, owned CRUD, PDF/DOCX text extraction, and persisted-resource reads available. Operations that
 require a new model result return a safe `AI_UNAVAILABLE` response before creating or changing lifecycle state;
 Resume Review and Preparation Plan paths that already define deterministic safe fallbacks keep those fallbacks.
-Live model calls require both explicit `CAREERPILOT_AI_ENABLED=true` opt-in and a process-provided
-`DASHSCOPE_API_KEY`.
+Live model calls require explicit `CAREERPILOT_AI_ENABLED=true` opt-in and a process-provided
+`DASHSCOPE_API_KEY`. Vector Resume Review additionally requires `CAREERPILOT_RAG_ENABLED=true`; otherwise the
+lexical/deterministic paths remain active.
 
 ## 10. Delivery boundaries
 
@@ -263,6 +270,10 @@ Live model calls require both explicit `CAREERPILOT_AI_ENABLED=true` opt-in and 
 - RR-03 returns at most six suggestions and at most two from one category. Deterministic fallback uses the same
   diversity limits, and the model sees only that already-diversified candidate set, so a long Skills list does
   not produce repetitive advice.
+- Post-V1 RAG-01 adds the optional public-synthetic vector slice: stable Markdown chunks and metadata, DashScope
+  `text-embedding-v3` at 1024 dimensions, PostgreSQL pgvector, server filters, retrieved-chunk validation,
+  server-owned citations, and lexical/deterministic fallback. It adds no private knowledge ingestion or persisted
+  user Review history.
 - Post-V1 OPS-01 makes AI an explicit local runtime capability instead of a startup prerequisite. It changes no
   product data model and never converts an unavailable model into a partially persisted operation.
 - Post-V1 PORT-01 packages the existing product for portfolio review with startup instructions, an architecture
