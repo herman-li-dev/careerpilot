@@ -546,16 +546,34 @@ client IP, with one immediate burst request. Public-RAG application audit events
 method, fixed route, status, and latency. They do not contain authorization headers, Clerk identity, IP address,
 filename, multipart fields, extracted text, prompt, embedding, or response body.
 
-The current validation endpoint does not send content to an AI provider. A future live review must present a
-separate disclosure that extracted Resume content is processed temporarily by the configured AI provider and
-is not stored by CareerPilot. Provider retention and processing claims must match the selected deployment's
-then-current terms; no stronger deletion claim is made by this contract.
+The validation endpoint does not send content to an AI provider. The private-workspace live review presents a
+separate acknowledgement that bounded Resume evidence is processed by the configured AI provider. CareerPilot
+does not persist its prompt or Review response; provider retention and processing follow that provider's terms.
+
+### `POST /api/rag/resume/review`
+
+This endpoint exists in application-level Clerk mode. It accepts `{"resumeId": 31}` and returns the same
+ephemeral `ResumeReview` envelope documented for `POST /api/resumes/{resumeId}/review`. The backend derives the
+internal user ID and Clerk subject from the verified JWT. It loads only a `COMPLETED` Resume owned by that user
+before token estimation, quota reservation, embedding, vector retrieval, or chat-model work. Missing and
+cross-owner IDs both return `404 RESOURCE_NOT_FOUND` without consuming quota.
+
+AI, vector RAG, and the public-RAG guard must all be enabled. Otherwise the endpoint returns
+`503 AI_UNAVAILABLE`. Immediately before provider work, the guard validates the conservative input budget,
+obtains the Java concurrency slot, and atomically reserves per-user and global daily quota. The Qwen request
+sets the configured reserved output-token limit explicitly. The permit is automatically closed on success,
+timeout, provider failure, invalid model JSON, or any other exception.
+
+Recoverable vector, embedding, provider, or structured-output failures retain the existing lexical or
+deterministic fallback. Authentication, ownership, validation, token-limit, concurrency, and quota failures
+are returned as errors and never enter an unguarded fallback. In Clerk application mode, the legacy
+`POST /api/resumes/{resumeId}/review` controller is absent to prevent quota bypass.
 
 ### Public RAG model-call guard
 
-`PUBLIC-RAG-GUARD-01` is not a new public endpoint. When explicitly enabled, it provides the mandatory Java
-boundary that a future `POST /api/rag/resume/review` implementation must acquire immediately before calling a
-model. It rejects work before a provider call when any of these limits would be exceeded:
+`PUBLIC-RAG-GUARD-01` provides the mandatory Java boundary acquired by
+`POST /api/rag/resume/review` immediately before provider work. It rejects work before a provider call when any
+of these limits would be exceeded:
 
 - three reservations per verified Clerk subject per UTC day;
 - 100 reservations globally per UTC day;
@@ -563,8 +581,8 @@ model. It rejects work before a provider call when any of these limits would be 
 - 6000 conservative UTF-8 input-budget units, 800 requested output tokens, or 6800 total budget units.
 
 The input estimate counts each UTF-8 byte as one budget unit. This deliberately overestimates typical English
-model tokens and avoids tokenizer-specific undercounting without adding another runtime dependency. The future
-provider request must still use the reserved output value as its explicit maximum-output setting.
+model tokens and avoids tokenizer-specific undercounting without adding another runtime dependency. The
+provider request uses the reserved output value as its explicit maximum-output setting.
 
 Quota reservation is transactionally serialized in PostgreSQL. The database receives only a date-bound
 HMAC-SHA256 principal key, request counts, and reserved token counts; it never receives the raw Clerk subject,
@@ -572,9 +590,8 @@ email, Resume text, prompt, or model response. A reservation is intentionally co
 after the permit is issued even if a later provider failure occurs. Closing the permit releases only the Java
 concurrency slot.
 
-The live-review endpoint is still unimplemented, so the guard currently performs no provider call and exposes
-no new browser behavior. Its feature flag must remain false until that endpoint wraps the complete provider
-call in the permit and maps guard rejection to the documented lexical/deterministic fallback.
+Guard rejection is never converted to lexical fallback: token, concurrency, and quota limits must not be
+bypassed. The quota remains counted once reserved even if later recoverable provider work falls back.
 
 ## 12. HTTP and application errors
 
@@ -589,6 +606,7 @@ call in the permit and maps guard rejection to the documented lexical/determinis
 | `400` | `UNSAFE_DOCUMENT` | Macro-enabled, path-unsafe, or expansion-limit Resume files are unsupported |
 | `400` | `NO_EXTRACTABLE_TEXT` | No usable text was extracted; OCR/scanned PDFs are unsupported |
 | `400` | `EXTRACTED_TEXT_TOO_LARGE` | Normalized text exceeds 100,000 characters |
+| `400` | `PUBLIC_RAG_TOKEN_LIMIT` | Resume evidence exceeds the configured live-review input budget |
 | `401` | `AUTHENTICATION_REQUIRED` | No valid session |
 | `401` | `INVALID_CREDENTIALS` | Login credentials were not accepted |
 | `404` | `RESOURCE_NOT_FOUND` | Missing or not owned by current user |
@@ -596,6 +614,9 @@ call in the permit and maps guard rejection to the documented lexical/determinis
 | `409` | `EMAIL_ALREADY_REGISTERED` | An account already exists for the normalized email |
 | `422` | `MODEL_OUTPUT_INVALID` | Model response failed validation after bounded retry |
 | `429` | `PUBLIC_RAG_IP_RATE_LIMITED` | Trusted client IP exceeded the public Resume Review Nginx rate |
+| `429` | `PUBLIC_RAG_BUSY` | The single-process live-review concurrency limit is full |
+| `429` | `PUBLIC_RAG_USER_LIMIT` | The verified user reached the UTC daily live-review quota |
+| `429` | `PUBLIC_RAG_GLOBAL_LIMIT` | The application reached the UTC daily live-review quota |
 | `429` | `MODEL_RATE_LIMITED` | Provider rate limit reached |
 | `413` | `FILE_TOO_LARGE` | Multipart bytes exceed the 5 MiB upload limit |
 | `500` | `INTERNAL_ERROR` | Unexpected server failure with no internal details exposed |

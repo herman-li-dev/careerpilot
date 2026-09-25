@@ -91,6 +91,10 @@ public class ResumeReviewService {
     }
 
     public ResumeReview review(long userId, long resumeId) {
+        return reviewPrepared(prepare(userId, resumeId));
+    }
+
+    PreparedReview prepare(long userId, long resumeId) {
         Resume resume = resumeRepository.findByIdAndUserId(resumeId, userId)
                 .orElseThrow(ResourceNotFoundException::new);
         if (!"COMPLETED".equals(resume.parseStatus())) {
@@ -99,14 +103,21 @@ public class ResumeReviewService {
         String parsedJson = resumeRepository.findCompletedParsedJsonByIdAndUserId(resumeId, userId)
                 .orElseThrow(InvalidDocumentStateException::new);
         List<Evidence> evidence = extractEvidence(parsedJson);
-        ResumeReview vectorReview = tryVectorReview(resumeId, evidence);
+        List<String> guardInputParts = evidence.stream()
+                .map(item -> item.category() + ": " + item.text())
+                .toList();
+        return new PreparedReview(resumeId, evidence, guardInputParts);
+    }
+
+    ResumeReview reviewPrepared(PreparedReview prepared) {
+        ResumeReview vectorReview = tryVectorReview(prepared.resumeId, prepared.evidence);
         if (vectorReview != null) {
             return vectorReview;
         }
-        List<ReviewCandidate> retrievedCandidates = selectCandidates(evidence);
+        List<ReviewCandidate> retrievedCandidates = selectCandidates(prepared.evidence);
         if (retrievedCandidates.isEmpty()) {
             return new ResumeReview(
-                    resumeId,
+                    prepared.resumeId,
                     "SYNTHETIC_LEXICAL_RULES",
                     reviewKnowledgeBase.version(),
                     List.of()
@@ -115,13 +126,30 @@ public class ResumeReviewService {
         List<ReviewCandidate> candidates = diversifyCandidates(retrievedCandidates);
         List<ReviewSuggestion> modelSuggestions = selectWithModel(candidates);
         return new ResumeReview(
-                resumeId,
+                prepared.resumeId,
                 modelSuggestions == null
                         ? "SYNTHETIC_LEXICAL_RULES_FALLBACK"
                         : "MODEL_ASSISTED_SYNTHETIC_LEXICAL_RULES",
                 reviewKnowledgeBase.version(),
                 modelSuggestions == null ? suggestionsFrom(candidates) : modelSuggestions
         );
+    }
+
+    static final class PreparedReview {
+
+        private final long resumeId;
+        private final List<Evidence> evidence;
+        private final List<String> guardInputParts;
+
+        private PreparedReview(long resumeId, List<Evidence> evidence, List<String> guardInputParts) {
+            this.resumeId = resumeId;
+            this.evidence = List.copyOf(evidence);
+            this.guardInputParts = List.copyOf(guardInputParts);
+        }
+
+        List<String> guardInputParts() {
+            return guardInputParts;
+        }
     }
 
     private ResumeReview tryVectorReview(long resumeId, List<Evidence> evidence) {

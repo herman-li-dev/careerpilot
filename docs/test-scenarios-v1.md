@@ -147,8 +147,8 @@ The first sequence is the report-only milestone. The second becomes the full V1 
   PostgreSQL test verifies Flyway V9 plus concurrent user and cross-user global reservation limits.
 - PUBLIC-RAG-SECURITY-01 pre-model tests cover container expansion/path limits, authorization-header ambiguity,
   response/log redaction, no-store headers, exact Nginx rate-limit paths, and accurate validation privacy text.
-  Prompt-injection, provider failure, output validation, and end-to-end deletion acceptance remain pending until
-  a live model endpoint exists.
+  PUBLIC-RAG-LIVE-01 tests additionally cover ownership-before-quota, unguarded-route removal, quota/busy errors,
+  permit release on exception, explicit output-token options, provider failure, and invalid-output fallback.
 - A future interview-knowledge RAG requires its own fixed question set and acceptance criteria.
 - Backend tests, frontend build/E2E, Docker Compose startup, and README clone-to-run steps pass before final release.
 

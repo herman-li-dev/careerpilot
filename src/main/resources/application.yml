@@ -57,7 +57,7 @@ careerpilot:
       # Validates and extracts one request-scoped Resume without persistence or model calls.
       enabled: ${CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED:false}
     guard:
-      # Reserved for the future live public RAG call boundary; uploads do not consume model quota.
+      # Required by the live public RAG call boundary; validation-only uploads do not consume model quota.
       enabled: ${CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED:false}
       daily-user-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_USER_LIMIT:3}
       daily-global-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_GLOBAL_LIMIT:100}

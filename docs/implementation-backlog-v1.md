@@ -1046,7 +1046,7 @@ Remaining production acceptance: repeat the bounded PDF/DOCX smoke test after de
 for public users until the implemented guard is attached around the live provider call and its safe fallback
 behavior is verified.
 
-### `PUBLIC-RAG-GUARD-01` — Bounded public model-call guard — Implemented, live attachment pending
+### `PUBLIC-RAG-GUARD-01` — Bounded public model-call guard — Implemented and attached; production acceptance pending
 
 Scope: Establish cost and abuse ceilings before adding a public provider call, without counting temporary
 Resume validation as model usage or exposing a live RAG endpoint in this task.
@@ -1080,11 +1080,10 @@ Verification completed on 2026-09-20:
 - production Compose interpolation and the normal frontend production build passed. The temporary database and
   Nginx containers were stopped and removed without creating or deleting any database volume.
 
-Remaining acceptance: the future live public RAG endpoint must obtain the verified Clerk subject, include its
-entire prompt in the token estimate, acquire a permit immediately before DashScope, set the provider output cap
-to the reserved value, close the permit in all paths, and safely fall back for every guard denial. Production
-rollout also requires confirming that BaoTa overwrites `X-Real-IP` and that the frontend container remains bound
-to host loopback.
+The live endpoint now obtains the verified Clerk subject, estimates bounded Resume evidence, acquires the guard
+immediately before provider work, sets the provider output cap, and closes the permit in every path. Guard
+denials return errors and never enter fallback. Remaining production acceptance is confirming BaoTa overwrites
+`X-Real-IP`, the frontend container remains host-loopback-only, and live counters behave as configured.
 
 ### `PUBLIC-RAG-SECURITY-01` — Pre-model security and privacy hardening — Implemented, live model security acceptance pending
 
@@ -1120,10 +1119,44 @@ Verification completed on 2026-09-20:
 - production Compose interpolation and `git diff --check` passed. The exact temporary Nginx container and image
   were removed, and no database container or volume was created, changed, or deleted for this task.
 
-Live model security acceptance pending: prompt-injection isolation for uploaded Resume chunks, full-prompt budget
-coverage, in-memory embedding disposal, provider timeout/failure fallback, structured output validation, and
-end-to-end provider data-handling verification cannot be accepted until the live endpoint exists. All related
-feature flags remain default-off.
+Automated live-path acceptance now covers ownership-before-provider, bounded prompt input, provider
+timeout/failure fallback, strict structured-output validation, permit release, and quota-bypass prevention.
+End-to-end provider data-handling and production-log verification remain pending; all related feature flags
+remain default-off.
+
+### `PUBLIC-RAG-LIVE-01` — Guarded private Resume vector review — Implemented; live provider acceptance pending
+
+Scope: Connect the existing Clerk identity, private Resume ownership, pgvector review, Qwen selection, quota,
+concurrency, validation, and fallback components without redesigning authentication or persisting Review output.
+
+Implemented boundaries:
+
+- `POST /api/rag/resume/review` accepts only a positive server-owned Resume ID in application-level Clerk mode;
+- the JWT-derived internal user ID loads and validates the owned `COMPLETED` Resume before quota or provider work;
+- the legacy `/api/resumes/{resumeId}/review` controller is absent in Clerk application mode, preventing quota
+  bypass while preserving the legacy route outside that mode;
+- AI, vector RAG, and guard availability are all required; a disabled component returns the existing
+  `503 AI_UNAVAILABLE` contract;
+- the guard is acquired immediately before provider work and its `AutoCloseable` permit is released on success,
+  timeout, provider failure, invalid JSON, and unexpected exceptions;
+- provider output uses the configured reserved maximum explicitly; quota remains charged after reservation;
+- recoverable vector/model failures use the existing lexical/deterministic fallback, while authentication,
+  ownership, validation, token, concurrency, and quota failures never fall back;
+- the frontend uses the guarded route in Clerk application mode and requires a provider-processing
+  acknowledgement before submission;
+- no dependency or database migration was added.
+
+Automated verification completed on 2026-09-25:
+
+- 23 focused live-review, ownership, guard, controller, output-cap, fallback, and compatibility tests passed;
+- the complete deterministic backend suite passed 204/204;
+- the existing PostgreSQL 16 + pgvector integration set passed 8/8 for V1–V10 schema and atomic quota behavior;
+- normal and Clerk application-mode frontend builds passed with 130 modules transformed;
+- local and production Compose interpolation passed, and `git diff --check` reported no whitespace errors.
+
+Remaining acceptance: run one production-equivalent Google-authenticated Resume through the live provider,
+confirm vector citation output and lexical fallback, inspect redacted logs and quota counters, and verify the
+deployed IP limit before enabling the feature publicly.
 
 ## 17. Deferred after DEPLOY-02
 

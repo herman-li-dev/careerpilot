@@ -169,22 +169,24 @@ sign-in strategies are disabled there. `CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED` and
 `PUBLIC-UPLOAD-01` adds `POST /api/rag/resume/validate` only when both
 backend flags are true. It accepts one PDF or DOCX up to 5 MiB, extracts and validates text during the request,
 then returns only the document type and character count. It does not save the original file, filename, extracted
-text, or Clerk identity and does not call AI or RAG. Per-user/global quotas, IP rate limiting, and live RAG remain
-separate work and must be completed before enabling model-backed public review.
+text, or Clerk identity and does not call AI or RAG.
 
 `PUBLIC-RAG-GUARD-01` prepares that model-call boundary behind another default-off backend flag. Its defaults are
 three reservations per UTC day per Google user, 100 per UTC day globally, two concurrent model requests, 6000
 conservative UTF-8 input-budget units, 800 requested output tokens, and 6800 total budget units. PostgreSQL stores only daily counters
 and a date-bound HMAC of the verified Clerk subject. Set a separate 32-byte
 `CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET` before enabling the guard; never expose it through Vite. Upload
-validation does not consume these model-call reservations, and no public live model endpoint exists yet.
+validation does not consume model-call reservations. `PUBLIC-RAG-LIVE-01` adds the application-authenticated
+`POST /api/rag/resume/review` route. It verifies ownership before reserving quota, wraps the complete provider
+path in an automatically closed concurrency permit, and disables the legacy unguarded review route in Clerk
+application mode. AI, RAG, and guard flags must all be enabled; otherwise the route returns `503 AI_UNAVAILABLE`.
 
 `PUBLIC-RAG-SECURITY-01` hardens the pre-model boundary. DOCX containers have entry-count, per-entry,
 total-uncompressed-size, and path-safety checks in addition to POI's ZIP-bomb protection. Public RAG responses
 are marked `no-store`, and metadata-only audit events contain a generated request ID, method, fixed route,
 status, and latency—never a token, filename, Resume text, prompt, embedding, or response body. The UI accurately
-states that validation is not sent to AI; provider-processing disclosure and live model security acceptance
-remain pending until a live endpoint exists.
+states that validation is not sent to AI. The private-workspace review control separately requires acknowledgement
+that bounded Resume evidence is sent to the configured provider and that provider handling follows its own terms.
 
 ## Verification
 

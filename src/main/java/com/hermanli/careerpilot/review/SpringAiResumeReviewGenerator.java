@@ -2,8 +2,10 @@ package com.hermanli.careerpilot.review;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -22,10 +24,16 @@ public class SpringAiResumeReviewGenerator implements ResumeReviewGenerator {
 
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
+    private final int maxOutputTokens;
 
-    public SpringAiResumeReviewGenerator(ChatModel dashscopeChatModel, ObjectMapper objectMapper) {
+    public SpringAiResumeReviewGenerator(
+            ChatModel dashscopeChatModel,
+            ObjectMapper objectMapper,
+            PublicRagGuardProperties guardProperties
+    ) {
         this.chatClient = ChatClient.builder(dashscopeChatModel).build();
         this.objectMapper = objectMapper;
+        this.maxOutputTokens = guardProperties.getMaxOutputTokens();
     }
 
     @Override
@@ -35,6 +43,7 @@ public class SpringAiResumeReviewGenerator implements ResumeReviewGenerator {
             return chatClient.prompt()
                     .system(INSTRUCTIONS)
                     .user("Candidate pairs JSON:\n---\n" + candidates + "\n---")
+                    .options(ChatOptions.builder().maxTokens(maxOutputTokens).build())
                     .call()
                     .content();
         } catch (JsonProcessingException exception) {

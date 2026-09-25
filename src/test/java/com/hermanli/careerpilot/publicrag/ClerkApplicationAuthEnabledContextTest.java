@@ -1,10 +1,13 @@
 package com.hermanli.careerpilot.publicrag;
 
+import com.hermanli.careerpilot.controller.careerpilot.PublicRagLiveReviewController;
+import com.hermanli.careerpilot.controller.careerpilot.ResumeReviewController;
 import com.hermanli.careerpilot.identity.SessionCookieService;
 import com.hermanli.careerpilot.identity.SessionTokenService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,6 +32,9 @@ class ClerkApplicationAuthEnabledContextTest {
     @Autowired
     private SessionTokenService sessionTokenService;
 
+    @Autowired
+    private ApplicationContext applicationContext;
+
     @Test
     void personalApiRejectsLegacyCookieWhenClerkApplicationAuthenticationIsEnabled() throws Exception {
         Cookie legacyCookie = new Cookie(
@@ -48,5 +54,13 @@ class ClerkApplicationAuthEnabledContextTest {
                         .content("{\"email\":\"legacy@example.com\",\"password\":\"password123\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void exposesOnlyTheGuardedReviewRouteInClerkApplicationMode() {
+        org.assertj.core.api.Assertions.assertThat(applicationContext.getBeansOfType(ResumeReviewController.class))
+                .isEmpty();
+        org.assertj.core.api.Assertions.assertThat(applicationContext.getBeansOfType(PublicRagLiveReviewController.class))
+                .hasSize(1);
     }
 }

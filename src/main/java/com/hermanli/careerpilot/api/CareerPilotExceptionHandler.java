@@ -12,6 +12,7 @@ import com.hermanli.careerpilot.documents.ResumeUploadException;
 import com.hermanli.careerpilot.interview.InterviewModelUnavailableException;
 import com.hermanli.careerpilot.interview.InvalidInterviewPreparationStateException;
 import com.hermanli.careerpilot.interview.InvalidInterviewQuestionException;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -133,6 +134,26 @@ public class CareerPilotExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.error(new ApiError(
                 "AI_UNAVAILABLE",
                 "AI features are not enabled for this environment.",
+                Map.of()
+        )));
+    }
+
+    @ExceptionHandler(PublicRagGuardRejectedException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePublicRagGuardRejected(
+            PublicRagGuardRejectedException exception
+    ) {
+        HttpStatus status = exception.reason() == PublicRagGuardRejectedException.Reason.TOKEN_LIMIT
+                ? HttpStatus.BAD_REQUEST
+                : HttpStatus.TOO_MANY_REQUESTS;
+        String code = switch (exception.reason()) {
+            case TOKEN_LIMIT -> "PUBLIC_RAG_TOKEN_LIMIT";
+            case CONCURRENCY_LIMIT -> "PUBLIC_RAG_BUSY";
+            case USER_DAILY_LIMIT -> "PUBLIC_RAG_USER_LIMIT";
+            case GLOBAL_DAILY_LIMIT -> "PUBLIC_RAG_GLOBAL_LIMIT";
+        };
+        return ResponseEntity.status(status).body(ApiResponse.error(new ApiError(
+                code,
+                exception.getMessage(),
                 Map.of()
         )));
     }

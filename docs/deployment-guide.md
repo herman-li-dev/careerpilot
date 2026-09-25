@@ -78,8 +78,8 @@ sign-in/sign-up strategy. Then set `CAREERPILOT_CLERK_AUTH_ENABLED=true`,
 the exact public CareerPilot origin as `CAREERPILOT_CLERK_AUTHORIZED_PARTIES`, and the browser-safe publishable
 key as `VITE_CLERK_PUBLISHABLE_KEY`. The application flag replaces the legacy Cookie identity on personal APIs
 and provisions an internal `app_user.id` through the unique Clerk `(issuer, subject)` mapping. Never add a Clerk
-secret key to Compose or a Vite variable. Keep AI and RAG
-disabled until quota, rate-limit, concurrency, and cost-control work has been implemented and verified. Upload
+secret key to Compose or a Vite variable. Keep AI and RAG disabled until quota, rate-limit, concurrency, and
+cost-control verification is complete. Upload
 validation additionally requires `CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true` and
 `VITE_CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true`; it discards the request bytes and extracted text and never
 invokes the provider. The
@@ -87,12 +87,17 @@ frontend container uses that same exact Clerk issuer when rendering its Nginx CS
 Clerk's documented protection, challenge, image, and worker sources; do not replace it with a wildcard HTTPS
 source.
 
-Keep `CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED=false` until a live public model endpoint actually acquires the guard
-around every provider call. Before enabling it, set a stable random
+Keep `CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED=false` until production live-review acceptance. Before enabling it,
+set a stable random
 `CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET` containing at least 32 UTF-8 bytes. It is a backend secret: do not put
 it in a Vite variable, frontend image build argument, browser response, or log. Changing it during a UTC day
 changes user quota keys and can reset effective per-user limits, so rotate it only as a deliberate operational
 change.
+
+Live review additionally requires `CAREERPILOT_AI_ENABLED=true`, `CAREERPILOT_RAG_ENABLED=true`, and a
+process-only `DASHSCOPE_API_KEY`. The production Compose file passes these values only from the deployment
+environment and defaults every provider flag off. Do not enable only part of this set: the API deliberately
+returns `503 AI_UNAVAILABLE` until AI, RAG, and the guard are all available.
 
 The inner Nginx uses the host proxy's `X-Real-IP` value for its two-requests-per-minute public-RAG limit. Because
 the container binds only to `127.0.0.1`, the host proxy is the only intended network caller. The BaoTa/host Nginx
@@ -156,10 +161,10 @@ events are intentionally limited to generated request ID, method, fixed route, s
 HTTP debug request-detail logging, multipart-body logging, authorization-header logging, or proxy request-body
 logging in production.
 
-The validation-only UI must state that CareerPilot does not store the uploaded file, filename, or extracted text
-and that this step does not contact an AI provider. Before a later live review sends extracted content to an AI
-provider, deploy an explicit provider-processing notice whose retention and region statements match that
-provider deployment's current terms.
+The validation-only UI states that CareerPilot does not store the uploaded file, filename, or extracted text
+and that validation does not contact an AI provider. The live-review control separately requires an explicit
+acknowledgement before it sends bounded Resume evidence to the configured provider. Do not add retention or
+region claims beyond the provider deployment's current terms.
 
 “Not stored” means no database row, application-managed upload file, durable upload volume, log body, or browser
 storage. Nginx and Spring multipart handling may use bounded container-local temporary request buffers, which

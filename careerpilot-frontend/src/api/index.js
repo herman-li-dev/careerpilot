@@ -10,6 +10,8 @@ const request = axios.create({
   withCredentials: true
 })
 
+const clerkApplicationAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+
 let authTokenProvider = null
 
 export const configureAuthTokenProvider = provider => {
@@ -55,7 +57,9 @@ export const uploadResume = ({ file, title }) => {
   return request.post('/resumes/upload', formData).then(data)
 }
 export const parseResume = id => request.post(`/resumes/${id}/parse`).then(data)
-export const reviewResume = id => request.post(`/resumes/${id}/review`).then(data)
+export const reviewResume = id => clerkApplicationAuthEnabled
+  ? request.post('/rag/resume/review', { resumeId: id }).then(data)
+  : request.post(`/resumes/${id}/review`).then(data)
 
 export const listJobDescriptions = () => request.get('/job-descriptions').then(data)
 export const getJobDescription = id => request.get(`/job-descriptions/${id}`).then(data)

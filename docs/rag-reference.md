@@ -94,8 +94,9 @@ invalid rule/evidence pairs, and evidence that does not match the parsed Resume.
 citation: after validating the retrieved document's ID, exact content, metadata, and hash against the bundled
 guide, the server constructs the citation and bounded excerpt from that accepted retrieval result.
 
-The existing `POST /api/resumes/{resumeId}/review` contract stays compatible. Existing response fields and
-legacy `reviewType` values remain valid. A vector-selected success uses
+The existing `POST /api/resumes/{resumeId}/review` contract stays compatible outside application-level Clerk
+mode. Clerk application mode uses the guarded `POST /api/rag/resume/review` route and removes the legacy route
+to prevent quota bypass; both return the same response fields and `reviewType` values. A vector-selected success uses
 `MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG`; a suggestion may additionally contain a server-resolved citation:
 
 ```json
