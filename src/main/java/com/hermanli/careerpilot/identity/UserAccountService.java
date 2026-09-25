@@ -64,6 +64,14 @@ public class UserAccountService {
         return userAccountRepository.findCurrentUserById(userId);
     }
 
+    @Transactional
+    public long resolveOrCreateClerkUser(String issuer, String subject) {
+        if (issuer == null || issuer.isBlank() || subject == null || subject.isBlank()) {
+            throw new AuthenticationRequiredException();
+        }
+        return userAccountRepository.resolveOrCreateClerkUser(issuer, subject);
+    }
+
     private String normalizeEmail(String email) {
         return email.strip().toLowerCase(Locale.ROOT);
     }

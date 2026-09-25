@@ -258,6 +258,20 @@ version. The table stores only the bundled public synthetic guide's stable chunk
 not store Resume text, review output, private knowledge, or user ownership state. Re-indexing the fixed guide
 does not create a user-visible resource.
 
+PUBLIC-RAG-GUARD-01 adds Flyway V9 and one operational counter table, `public_rag_daily_usage`. Its composite
+primary key is `(usage_date, scope, principal_key)`. `scope` is `USER` or `GLOBAL`; user rows contain only a
+date-bound HMAC-SHA256 key derived from the verified Clerk subject, while the global row uses the fixed key
+`GLOBAL`. The remaining fields are non-negative request, reserved-input-token, and reserved-output-token
+counters plus an update timestamp. It stores no raw Clerk identifier, email, IP address, Resume data, prompt,
+retrieved context, model response, provider token, or billing record. Locking the global row and then the user
+row in one transaction prevents concurrent requests from crossing either daily request limit.
+
+PUBLIC-AUTH-02 adds Flyway V10 identity fields to the existing `app_user` table. `clerk_issuer` and
+`clerk_subject` are either both null or both non-blank and are unique as a pair. Clerk sign-in atomically resolves
+or creates this mapping and returns the existing `app_user.id BIGINT`, so all established resource foreign keys
+and ownership predicates remain unchanged. `email` and `password_hash` become nullable for Clerk-only users;
+neither email nor any browser-supplied user ID is used to match or authorize an external identity.
+
 OPS-01 adds no table, column, index, or Flyway migration. AI availability is process configuration, not
 persisted user or resource state. Disabling AI does not change historical analyses, reports, plans, tasks,
 interview sessions, parsed documents, or upload storage boundaries.

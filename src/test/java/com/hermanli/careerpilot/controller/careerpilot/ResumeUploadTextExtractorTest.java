@@ -57,6 +57,8 @@ class ResumeUploadTextExtractorTest {
                 "INVALID_DOCUMENT");
         assertCode(pdf(""), "NO_EXTRACTABLE_TEXT");
         assertCode(macroDocx(), "UNSAFE_DOCUMENT");
+        assertCode(pathTraversalDocx(), "UNSAFE_DOCUMENT");
+        assertCode(expandingDocx(), "UNSAFE_DOCUMENT");
         assertCode(new MockMultipartFile(
                 "file", "resume.docx", DOCX_MIME,
                 new byte[]{(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0}
@@ -166,6 +168,25 @@ class ResumeUploadTextExtractorTest {
             addEntry(zip, "[Content_Types].xml", "<Types/>".getBytes());
             addEntry(zip, "word/document.xml", "<document/>".getBytes());
             addEntry(zip, "word/vbaProject.bin", new byte[]{1});
+        }
+        return new MockMultipartFile("file", "resume.docx", DOCX_MIME, output.toByteArray());
+    }
+
+    private MockMultipartFile pathTraversalDocx() throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            addEntry(zip, "[Content_Types].xml", "<Types/>".getBytes());
+            addEntry(zip, "word/document.xml", "<document/>".getBytes());
+            addEntry(zip, "../outside.xml", "unsafe".getBytes());
+        }
+        return new MockMultipartFile("file", "resume.docx", DOCX_MIME, output.toByteArray());
+    }
+
+    private MockMultipartFile expandingDocx() throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            addEntry(zip, "[Content_Types].xml", "<Types/>".getBytes());
+            addEntry(zip, "word/document.xml", new byte[10 * 1024 * 1024 + 1]);
         }
         return new MockMultipartFile("file", "resume.docx", DOCX_MIME, output.toByteArray());
     }

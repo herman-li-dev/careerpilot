@@ -1,6 +1,7 @@
 package com.hermanli.careerpilot.identity;
 
 import com.hermanli.careerpilot.config.SessionTokenConfig;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -27,7 +28,7 @@ public class SessionTokenService {
 
     public SessionTokenService(
             JwtEncoder jwtEncoder,
-            JwtDecoder jwtDecoder,
+            @Qualifier("jwtDecoder") JwtDecoder jwtDecoder,
             Clock clock,
             @Value("${careerpilot.auth.session-duration}") Duration sessionDuration
     ) {

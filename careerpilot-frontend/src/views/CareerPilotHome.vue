@@ -9,7 +9,17 @@
       </div>
     </header>
 
-    <section v-if="!currentUser" class="auth-card" aria-labelledby="auth-title">
+    <section v-if="!currentUser && clerkAuthEnabled" class="auth-card" aria-labelledby="auth-title">
+      <p class="eyebrow">SECURE WORKSPACE</p>
+      <h2 id="auth-title">Verifying your account</h2>
+      <p class="muted">CareerPilot is confirming your Google session with the backend.</p>
+      <p v-if="authMessage" class="message" :class="authMessage.type" role="alert">{{ authMessage.text }}</p>
+      <button v-if="authMessage" class="secondary-button" type="button" :disabled="authBusy" @click="loadAuthenticatedWorkspace">
+        {{ authBusy ? 'Verifying…' : 'Retry verification' }}
+      </button>
+    </section>
+
+    <section v-else-if="!currentUser" class="auth-card" aria-labelledby="auth-title">
       <p class="eyebrow">GET STARTED</p>
       <template v-if="demoMode">
         <h2 id="auth-title">Explore the synthetic demo</h2>
@@ -47,8 +57,11 @@
         <div class="brand-lockup"><span class="brand-mark">CP</span><span>CareerPilot</span></div>
         <div class="account-actions">
           <span v-if="demoMode" class="status">Read-only demo</span>
-          <span>{{ demoMode ? 'Synthetic demo user' : currentUser.email }}</span>
-          <button class="text-button" type="button" @click="signOut">Sign out</button>
+          <ClerkAccountControls v-if="clerkAuthEnabled" />
+          <template v-else>
+            <span>{{ demoMode ? 'Synthetic demo user' : currentUser.email }}</span>
+            <button class="text-button" type="button" @click="signOut">Sign out</button>
+          </template>
         </div>
       </div>
 
@@ -60,6 +73,7 @@
         </div>
         <button class="secondary-button" type="button" :disabled="loading" @click="loadDocuments">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
       </div>
+      <PublicRagAuthPanel v-if="publicRagPanelEnabled" />
       <p v-if="workspaceMessage" class="message" :class="workspaceMessage.type" :role="workspaceMessage.type === 'error' ? 'alert' : 'status'" aria-live="polite">{{ workspaceMessage.text }}</p>
 
       <section class="progress-section" aria-label="Preparation steps">
@@ -213,8 +227,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import ClerkAccountControls from '../components/ClerkAccountControls.vue'
 import DocumentColumn from '../components/DocumentColumn.vue'
 import {
   createJobDescription,
@@ -237,7 +252,13 @@ import {
 
 const authMode = ref('login')
 const router = useRouter()
-const demoMode = import.meta.env.VITE_CAREERPILOT_DEMO_MODE === 'true'
+const clerkAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+const publicRagPanelEnabled = import.meta.env.VITE_CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED === 'true'
+  && !clerkAuthEnabled
+const PublicRagAuthPanel = publicRagPanelEnabled
+  ? defineAsyncComponent(() => import('../components/PublicRagAuthPanel.vue'))
+  : null
+const demoMode = import.meta.env.VITE_CAREERPILOT_DEMO_MODE === 'true' && !clerkAuthEnabled
 const authForm = reactive({ email: '', password: '' })
 const authBusy = ref(false)
 const authMessage = ref(null)
@@ -275,16 +296,30 @@ const parseMethods = {
   jobDescription: parseJobDescription
 }
 
-onMounted(async () => {
+onMounted(loadAuthenticatedWorkspace)
+
+async function loadAuthenticatedWorkspace() {
+  authBusy.value = true
+  authMessage.value = null
   try {
     currentUser.value = await getCurrentUser()
     await Promise.all([loadDocuments(), loadAnalyses()])
   } catch (error) {
-    if (error.response?.status !== 401) {
+    currentUser.value = null
+    if (clerkAuthEnabled) {
+      authMessage.value = {
+        type: 'error',
+        text: error.response?.status === 401
+          ? 'Google session verification failed. Please sign out and sign in again, or retry.'
+          : messageFrom(error)
+      }
+    } else if (error.response?.status !== 401) {
       authMessage.value = { type: 'error', text: messageFrom(error) }
     }
+  } finally {
+    authBusy.value = false
   }
-})
+}
 
 async function submitAuth() {
   authBusy.value = true

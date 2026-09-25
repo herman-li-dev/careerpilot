@@ -14,6 +14,22 @@ server:
     include-stacktrace: never
 
 careerpilot:
+  public-rag:
+    auth:
+      enabled: ${CAREERPILOT_CLERK_AUTH_ENABLED:${CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED:false}}
+      issuer: ${CAREERPILOT_CLERK_ISSUER:}
+      authorized-parties: ${CAREERPILOT_CLERK_AUTHORIZED_PARTIES:}
+    upload:
+      enabled: ${CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED:false}
+    guard:
+      enabled: ${CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED:false}
+      daily-user-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_USER_LIMIT:3}
+      daily-global-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_GLOBAL_LIMIT:100}
+      max-concurrent-requests: ${CAREERPILOT_PUBLIC_RAG_MAX_CONCURRENT_REQUESTS:2}
+      max-input-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_INPUT_TOKENS:6000}
+      max-output-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_OUTPUT_TOKENS:800}
+      max-total-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_TOTAL_TOKENS:6800}
+      identity-hmac-secret: ${CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET:}
   ai:
     enabled: ${CAREERPILOT_AI_ENABLED:false}
   review:
@@ -23,5 +39,6 @@ careerpilot:
   demo:
     enabled: ${CAREERPILOT_DEMO_ENABLED:false}
   auth:
+    clerk-application-enabled: ${CAREERPILOT_CLERK_AUTH_ENABLED:false}
     jwt-secret: ${CAREERPILOT_JWT_SECRET}
     cookie-secure: ${CAREERPILOT_AUTH_COOKIE_SECURE:true}

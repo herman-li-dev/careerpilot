@@ -30,6 +30,8 @@ This public mode is intentionally different from local development:
 - uploaded files, pasted content, user registration, task updates, new analyses, and regeneration are not
   available through the public demo;
 - the seeded account password is random and never published or stored in source control.
+- the optional Clerk public-RAG authentication and request-scoped upload boundaries remain off unless their
+  backend and frontend feature flags are deliberately enabled; neither boundary enables AI or RAG.
 
 Run a single backend replica in this mode. Startup seeding is deliberately transactional and is not designed
 for concurrent replicas.
@@ -70,6 +72,41 @@ Set:
 - `CAREERPILOT_PUBLIC_ORIGIN`: the exact public HTTPS origin, with no path;
 - `CAREERPILOT_HTTP_PORT`: the host-only HTTP port consumed by the outer TLS proxy.
 
+For a `PUBLIC-AUTH-02` rollout, first configure a Clerk production instance with Google as its only
+sign-in/sign-up strategy. Then set `CAREERPILOT_CLERK_AUTH_ENABLED=true`,
+`VITE_CAREERPILOT_AUTH_ENABLED=true`, the Clerk Frontend API origin as `CAREERPILOT_CLERK_ISSUER`,
+the exact public CareerPilot origin as `CAREERPILOT_CLERK_AUTHORIZED_PARTIES`, and the browser-safe publishable
+key as `VITE_CLERK_PUBLISHABLE_KEY`. The application flag replaces the legacy Cookie identity on personal APIs
+and provisions an internal `app_user.id` through the unique Clerk `(issuer, subject)` mapping. Never add a Clerk
+secret key to Compose or a Vite variable. Keep AI and RAG
+disabled until quota, rate-limit, concurrency, and cost-control work has been implemented and verified. Upload
+validation additionally requires `CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true` and
+`VITE_CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true`; it discards the request bytes and extracted text and never
+invokes the provider. The
+frontend container uses that same exact Clerk issuer when rendering its Nginx CSP and separately allows only
+Clerk's documented protection, challenge, image, and worker sources; do not replace it with a wildcard HTTPS
+source.
+
+Keep `CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED=false` until a live public model endpoint actually acquires the guard
+around every provider call. Before enabling it, set a stable random
+`CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET` containing at least 32 UTF-8 bytes. It is a backend secret: do not put
+it in a Vite variable, frontend image build argument, browser response, or log. Changing it during a UTC day
+changes user quota keys and can reset effective per-user limits, so rotate it only as a deliberate operational
+change.
+
+The inner Nginx uses the host proxy's `X-Real-IP` value for its two-requests-per-minute public-RAG limit. Because
+the container binds only to `127.0.0.1`, the host proxy is the only intended network caller. The BaoTa/host Nginx
+configuration must overwrite rather than append this header:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+Do not publish the inner Nginx port on a non-loopback interface while it trusts this header. The upload and
+reserved live-review paths share one IP bucket; excessive requests receive a JSON
+`429 PUBLIC_RAG_IP_RATE_LIMITED` response before reaching Spring Boot.
+
 The checked-in limits target the current low-traffic portfolio host: `640m` for Spring Boot, `320m` for
 PostgreSQL, and `96m` for Nginx. The Java heap is capped at half of its container limit. These limits prevent
 CareerPilot from claiming all memory on a 2 GB host, but they do not make that host suitable for image builds.
@@ -104,7 +141,8 @@ The backend build context excludes `careerpilot-private-knowledge/`. The bundled
 guide remains included, but public-demo AI/RAG settings keep the vector path disabled.
 
 Point the outer HTTPS proxy at `127.0.0.1:${CAREERPILOT_HTTP_PORT}`. The proxy must preserve `Host`,
-`X-Forwarded-For`, and `X-Forwarded-Proto`. Then verify:
+overwrite `X-Real-IP` with the direct client address, and preserve `X-Forwarded-For` and `X-Forwarded-Proto`.
+Then verify:
 
 ```text
 GET https://your-domain.example/api/health -> 200
@@ -113,7 +151,20 @@ POST /api/resumes -> 403 DEMO_READ_ONLY
 ```
 
 Also verify that browser Cookies are `HttpOnly`, `Secure`, `SameSite=Strict`, no backend/database port is
-public, and logs contain no document text, tokens, secrets, prompt bodies, or model responses.
+public, and logs contain no document text, tokens, secrets, prompt bodies, or model responses. Public-RAG audit
+events are intentionally limited to generated request ID, method, fixed route, status, and latency. Do not enable
+HTTP debug request-detail logging, multipart-body logging, authorization-header logging, or proxy request-body
+logging in production.
+
+The validation-only UI must state that CareerPilot does not store the uploaded file, filename, or extracted text
+and that this step does not contact an AI provider. Before a later live review sends extracted content to an AI
+provider, deploy an explicit provider-processing notice whose retention and region statements match that
+provider deployment's current terms.
+
+“Not stored” means no database row, application-managed upload file, durable upload volume, log body, or browser
+storage. Nginx and Spring multipart handling may use bounded container-local temporary request buffers, which
+are discarded with the request lifecycle. Do not describe this validation path as memory-only, and do not mount
+its temporary directories on persistent volumes.
 
 ## 4. Updates and rollback
 

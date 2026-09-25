@@ -78,4 +78,25 @@ class UserAccountServiceTest {
         assertThrows(DuplicateEmailException.class,
                 () -> service.register("candidate@example.com", suppliedPassword));
     }
+
+    @Test
+    void resolvesVerifiedClerkIdentityThroughTheRepository() {
+        when(userAccountRepository.resolveOrCreateClerkUser(
+                "https://example.clerk.accounts.dev",
+                "user_123"
+        )).thenReturn(84L);
+
+        assertEquals(84L, service.resolveOrCreateClerkUser(
+                "https://example.clerk.accounts.dev",
+                "user_123"
+        ));
+    }
+
+    @Test
+    void rejectsIncompleteClerkIdentity() {
+        assertThrows(AuthenticationRequiredException.class,
+                () -> service.resolveOrCreateClerkUser("", "user_123"));
+        assertThrows(AuthenticationRequiredException.class,
+                () -> service.resolveOrCreateClerkUser("https://example.clerk.accounts.dev", ""));
+    }
 }

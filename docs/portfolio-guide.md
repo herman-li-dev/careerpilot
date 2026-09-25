@@ -119,7 +119,7 @@ public screenshot intentionally shows the offline deterministic fallback.
 - Java 21;
 - Node.js/npm compatible with the checked-in Vue/Vite project;
 - Docker Desktop, or a PostgreSQL 16 instance;
-- local ports 5432, 8123, and 3000 available.
+- local ports 5433, 8123, and 3000 available.
 
 ### 1. Start PostgreSQL
 

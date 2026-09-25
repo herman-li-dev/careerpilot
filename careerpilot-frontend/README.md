@@ -29,5 +29,20 @@ Read-only synthetic demo:
 VITE_CAREERPILOT_DEMO_MODE=true npm run build
 ```
 
+The optional public Google-authenticated upload slice is disabled by default. For a local or CI build that
+includes it, set both feature flags and a browser-safe Clerk publishable key:
+
+```dotenv
+VITE_CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED=true
+VITE_CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_replace_with_your_publishable_key
+```
+
+The upload form accepts one PDF or DOCX up to 5 MiB after the backend verifies the Clerk session. It validates
+and extracts text only for that request; it does not persist the file or text and does not call AI or RAG. The
+panel explicitly distinguishes this validation-only behavior from a future live review. Before any Resume text
+is sent to an AI provider, that later flow must display a separate provider-processing disclosure.
+
 The production Nginx image serves the generated assets and proxies same-origin `/api` requests to the private
-backend service. The public demo must remain synthetic-only, AI-disabled, and read-only.
+backend service. With the optional flags off, the public demo remains synthetic-only, AI-disabled, and
+read-only.

@@ -1,13 +1,15 @@
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg16-bookworm
-    container_name: careerpilot-postgres
+    # A distinct container name and host port keep this checkout's database separate from any
+    # other CareerPilot workspace that also runs a container named "careerpilot-postgres".
+    container_name: careerpilot-github-postgres
     environment:
       POSTGRES_DB: ${CAREERPILOT_DB_NAME:-careerpilot}
       POSTGRES_USER: ${CAREERPILOT_DB_USERNAME:-careerpilot_app}
       POSTGRES_PASSWORD: ${CAREERPILOT_DB_PASSWORD:?Set CAREERPILOT_DB_PASSWORD before starting PostgreSQL}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - careerpilot-postgres-data:/var/lib/postgresql/data
     healthcheck:

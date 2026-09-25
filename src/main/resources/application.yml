@@ -4,7 +4,9 @@ spring:
   profiles:
     active: local
   datasource:
-    url: ${CAREERPILOT_DB_URL:jdbc:postgresql://localhost:5432/careerpilot}
+    # Local development uses host port 5433 so this checkout never attaches to another
+    # workspace's "careerpilot-postgres" container that publishes 5432. Override with CAREERPILOT_DB_URL.
+    url: ${CAREERPILOT_DB_URL:jdbc:postgresql://localhost:5433/careerpilot}
     username: ${CAREERPILOT_DB_USERNAME:careerpilot_app}
     password: ${CAREERPILOT_DB_PASSWORD:}
   flyway:
@@ -15,6 +17,9 @@ spring:
     multipart:
       max-file-size: 5242880B
       max-request-size: 6291456B
+  mvc:
+    # Even debug logging must not print multipart fields, Bearer tokens, or document content.
+    log-request-details: false
   ai:
     dashscope:
       # Read provider credentials only from the environment.
@@ -42,6 +47,25 @@ logging:
     org.springframework.ai: INFO
 
 careerpilot:
+  public-rag:
+    auth:
+      # The application-level switch also enables the shared Clerk JWT verifier.
+      enabled: ${CAREERPILOT_CLERK_AUTH_ENABLED:${CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED:false}}
+      issuer: ${CAREERPILOT_CLERK_ISSUER:}
+      authorized-parties: ${CAREERPILOT_CLERK_AUTHORIZED_PARTIES:}
+    upload:
+      # Validates and extracts one request-scoped Resume without persistence or model calls.
+      enabled: ${CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED:false}
+    guard:
+      # Reserved for the future live public RAG call boundary; uploads do not consume model quota.
+      enabled: ${CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED:false}
+      daily-user-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_USER_LIMIT:3}
+      daily-global-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_GLOBAL_LIMIT:100}
+      max-concurrent-requests: ${CAREERPILOT_PUBLIC_RAG_MAX_CONCURRENT_REQUESTS:2}
+      max-input-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_INPUT_TOKENS:6000}
+      max-output-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_OUTPUT_TOKENS:800}
+      max-total-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_TOTAL_TOKENS:6800}
+      identity-hmac-secret: ${CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET:}
   demo:
     # Public synthetic-data demo mode is opt-in and must remain disabled for normal local use.
     enabled: ${CAREERPILOT_DEMO_ENABLED:false}
@@ -61,6 +85,8 @@ careerpilot:
   cors:
     allowed-origins: ${CAREERPILOT_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   auth:
+    # When enabled, Clerk Bearer JWTs replace the legacy session cookie on all personal APIs.
+    clerk-application-enabled: ${CAREERPILOT_CLERK_AUTH_ENABLED:false}
     jwt-secret: ${CAREERPILOT_JWT_SECRET:}
     session-duration: ${CAREERPILOT_AUTH_SESSION_DURATION:PT8H}
     cookie-secure: ${CAREERPILOT_AUTH_COOKIE_SECURE:false}

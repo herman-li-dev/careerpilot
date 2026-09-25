@@ -939,6 +939,192 @@ Verification completed on 2026-09-15, with live retrieval calibration completed 
 - normal and read-only-demo frontend builds passed with 92 modules transformed;
 - both Compose configurations and `git diff --check` passed.
 
+### `PUBLIC-AUTH-01` — Google-only Clerk login and Spring Boot JWT verification — Implemented and locally accepted
+
+Scope: Add a second, bounded authentication chain for a future public Resume Review without replacing the
+existing CareerPilot account/session system or opening uploads and model calls in this task.
+
+Implemented boundaries:
+
+- `@clerk/vue` is loaded only when an explicit frontend feature flag is enabled; the sign-in panel obtains a
+  session token without storing it in browser storage or a query string;
+- `GET /api/rag/session` requires a Bearer token and verifies RS256/JWKS signature, issuer, timestamps, non-blank
+  subject, exact authorized-party origin, and non-pending session status;
+- the endpoint returns only `authenticated: true`; it does not disclose or persist Clerk identity fields;
+- the existing CareerPilot email/password flow, HS256 Cookie, users, ownership rules, Resume data, and API
+  behavior remain unchanged;
+- the feature defaults off and performs no Resume upload, model call, vector retrieval, quota mutation, or
+  database migration;
+- Google-only sign-in is an explicit Clerk Dashboard requirement and is not claimed as code-enforced provider
+  configuration.
+
+Live acceptance completed on 2026-09-25:
+
+- an owner-controlled Clerk development instance exposed Google as the sign-in path used by the application;
+- a real browser session obtained a Clerk JWT that the backend accepted for `GET /api/rag/session` with the exact
+  development issuer and `http://localhost:3000` authorized party;
+- an anonymous request returned the expected safe `401`, while the authenticated UI displayed the verified
+  session state without exposing the token or Clerk subject.
+
+Remaining production acceptance: configure the exact production origin and publishable key, confirm the
+production Clerk instance remains Google-only, and repeat the browser smoke test after deployment. The guard
+still needs attachment to the future live RAG endpoint before any provider-backed rollout.
+
+### `PUBLIC-AUTH-02` — Application-level Clerk identity and personal API authentication — Implemented and locally accepted
+
+Scope: Make Google-only Clerk authentication the optional identity boundary for the whole personal CareerPilot
+application while preserving the established `app_user.id BIGINT` ownership model.
+
+Implemented boundaries:
+
+- Flyway V10 adds a unique, complete `(clerk_issuer, clerk_subject)` mapping to `app_user`; Clerk-only users do
+  not require fabricated email or password values;
+- the backend atomically resolves or creates that mapping and puts only the resulting internal user ID into the
+  existing request identity attribute used by all ownership-aware controllers and repositories;
+- when `CAREERPILOT_CLERK_AUTH_ENABLED=true`, all personal Resume, job-description, Analysis, plan, interview,
+  user, and RAG APIs require a valid Clerk Bearer JWT and no longer accept the legacy session Cookie;
+- legacy password registration/login, demo-login, and Cookie logout endpoints return `404` in that mode, so
+  Google is the only reachable account entry path;
+- invalid, expired, wrong-issuer, wrong-party, pending, or malformed tokens return the same safe `401`, and
+  browser-supplied email or user ID is never an authorization input;
+- the frontend renders a Clerk gate at `/`, moves the personal workspace to `/app`, obtains a fresh token for
+  Axios and SSE/fetch requests, and retains the prior feature-scoped panel only as a compatibility mode;
+- Google-only provider availability remains a Clerk Dashboard requirement; no Clerk secret key is used by the
+  application or exposed through Vite.
+
+Live acceptance completed on 2026-09-25:
+
+- the isolated `careerpilot-github-postgres` pgvector database applied Flyway V9 and V10 and reached schema
+  version 10 without touching the older workspace database or volume;
+- anonymous `GET /api/users/me` returned `401`, legacy `POST /api/auth/login` returned `404`, and a real Clerk
+  session entered the private `/app` workspace;
+- the first Google account saved two private Resume records, while a second Google account received a distinct
+  internal user with an empty workspace and could not see either record;
+- returning to the first account restored only its own records, confirming that all ownership queries continued
+  to use the server-derived internal `app_user.id`.
+
+Remaining production acceptance: repeat the anonymous, legacy-login, authenticated workspace, and two-account
+isolation checks after deployment. Keep live model rollout disabled until the guard and live security acceptance
+below are complete.
+
+### `PUBLIC-UPLOAD-01` — Clerk-protected request-scoped Resume validation — Implemented and locally accepted
+
+Scope: Let a Google-authenticated public-demo visitor submit one real Resume through the bounded PDF/DOCX
+extractor without persisting private data or invoking an external model.
+
+Implemented boundaries:
+
+- `POST /api/rag/resume/validate` exists only when both public-auth and public-upload backend flags are true and
+  requires a valid Clerk Bearer token through the existing public-RAG authentication interceptor;
+- the existing extractor enforces PDF/DOCX type agreement, file signature/container validation, encryption and
+  macro rejection, a 5 MiB byte limit, a 100,000-character text limit, and safe textless/scanned-PDF errors;
+- original bytes and extracted text remain request-scoped; no Resume row, file, filename, text, or Clerk identity
+  is persisted, logged, or returned;
+- the response contains only acceptance, document type, and extracted-character count and performs no model,
+  embedding, vector retrieval, or database mutation;
+- the browser upload form is separately build-gated, obtains a fresh Clerk token per request, and appears only
+  after backend session verification; backend and Nginx preserve an exact-path allowlist;
+- all upload flags default to false, so the current hosted demo behavior is unchanged until an explicit rollout.
+
+Verification completed on 2026-09-20:
+
+- focused authentication/upload/extractor/filter tests passed 15/15 and the full deterministic backend suite
+  passed 172/172 without a database container or live Clerk/model call;
+- normal, read-only-demo, and auth-plus-upload frontend builds passed; the production frontend Docker image
+  built successfully and its rendered Nginx configuration passed `nginx -t`;
+- production Compose interpolation, `git diff --check`, and production-dependency audit passed with no known
+  production npm vulnerability.
+
+Live acceptance completed on 2026-09-25:
+
+- a real Google-authenticated browser session submitted a text-based PDF through the bounded validation route;
+- the response reported `PDF accepted` and 2,377 extracted characters, then cleared the file input;
+- the validation result did not display or return Resume text, did not add a Resume to the demo document library,
+  and accurately stated that the extracted content was discarded without an AI or RAG call.
+
+Remaining production acceptance: repeat the bounded PDF/DOCX smoke test after deployment. Do not enable AI/RAG
+for public users until the implemented guard is attached around the live provider call and its safe fallback
+behavior is verified.
+
+### `PUBLIC-RAG-GUARD-01` — Bounded public model-call guard — Implemented, live attachment pending
+
+Scope: Establish cost and abuse ceilings before adding a public provider call, without counting temporary
+Resume validation as model usage or exposing a live RAG endpoint in this task.
+
+Implemented boundaries:
+
+- Flyway V9 adds one daily counter table; its user key is a date-bound HMAC-SHA256 of the verified Clerk subject,
+  and no raw subject, email, IP, Resume, prompt, context, or response is persisted;
+- PostgreSQL locks the global counter before the user counter and atomically reserves both, enforcing defaults
+  of three calls per user and 100 globally per UTC day even under concurrent requests;
+- one fair Java semaphore allows at most two concurrent model-call permits and rejects excess work immediately
+  without an unbounded queue;
+- a conservative JDK-only estimator counts UTF-8 bytes as input-budget units and caps the combined prompt at
+  6000 units, requested output at 800 tokens, and total budget at 6800 before quota reservation;
+- the Nginx upload and reserved live-review exact paths share a trusted-client-IP bucket of two requests per
+  minute with one immediate burst request and a safe JSON 429 response;
+- guard startup requires public Clerk authentication and a separate HMAC secret of at least 32 bytes; all guard
+  settings default off in local and production examples;
+- no dependency, live endpoint, provider call, model key, frontend model control, or existing API behavior is
+  introduced by this slice.
+
+Verification completed on 2026-09-20:
+
+- focused guard configuration/service/context tests passed 10/10, and the full deterministic backend suite
+  passed 182/182 without a live Clerk or model call;
+- an isolated, volume-free PostgreSQL 16 + pgvector container applied Flyway V1 through V9 and passed 3/3
+  external quota tests, including 12 concurrent attempts capped at three and exact reserved-token counters;
+- the production frontend image built successfully, its rendered Nginx configuration passed `nginx -t`, and an
+  actual loopback proxy test returned `502`, `502`, then the expected safe JSON `429` for one client bucket while
+  a different trusted client IP remained in a separate bucket;
+- production Compose interpolation and the normal frontend production build passed. The temporary database and
+  Nginx containers were stopped and removed without creating or deleting any database volume.
+
+Remaining acceptance: the future live public RAG endpoint must obtain the verified Clerk subject, include its
+entire prompt in the token estimate, acquire a permit immediately before DashScope, set the provider output cap
+to the reserved value, close the permit in all paths, and safely fall back for every guard denial. Production
+rollout also requires confirming that BaoTa overwrites `X-Real-IP` and that the frontend container remains bound
+to host loopback.
+
+### `PUBLIC-RAG-SECURITY-01` — Pre-model security and privacy hardening — Implemented, live model security acceptance pending
+
+Scope: Harden the already implemented public upload, Clerk authentication, rate-limit, logging, and privacy
+boundaries without adding or enabling a live provider-backed endpoint.
+
+Implemented boundaries:
+
+- DOCX pre-validation now rejects more than 1,000 archive entries, any expanded entry above 10 MiB, more than
+  20 MiB total expanded content, unknown expanded sizes, and absolute or parent-traversing archive paths before
+  document parsing; the existing 5 MiB upload, 50-page PDF, 100,000-character text, encryption, macro, signature,
+  and POI ZIP-bomb protections remain active;
+- ambiguous, duplicate, malformed, and whitespace-containing Authorization headers are rejected before JWT
+  decoding, while all token validation failures retain one non-disclosing `401` contract;
+- every authenticated public-RAG route receives a generated request ID plus `no-store`/`no-cache` response
+  headers; its audit event contains only request ID, method, fixed path, status, and latency;
+- Spring request-detail logging stays explicitly disabled, and automated canary checks verify that token,
+  decoder, filename, identity, and Resume contents do not enter the response or audit message;
+- Nginx keeps an exact-path shared bucket at two requests per trusted IP per minute with one immediate burst,
+  validates IPv4/IPv6-shaped trusted headers more narrowly, and adds bounded client/proxy inactivity timeouts;
+- the validation UI and operations guide state that CareerPilot does not store the upload and that validation
+  does not contact AI. They require a separate, provider-accurate processing disclosure before live review.
+
+Verification completed on 2026-09-20:
+
+- the focused upload/authentication/audit/Nginx security set passed 16/16, including compressed DOCX expansion,
+  archive traversal, ambiguous Authorization headers, fixed-route audit redaction, and no-store response checks;
+- the full deterministic backend suite passed 185/185 without a live Clerk or model call, and the frontend
+  production build passed with 127 modules transformed;
+- the optional-auth production frontend image built successfully and its rendered configuration passed
+  `nginx -t`; loopback requests produced `502`, `502`, then safe JSON `429` for one trusted IP, while a second
+  valid IP remained independent and changing invalid IP headers shared the fallback bucket (`502`, `429`);
+- production Compose interpolation and `git diff --check` passed. The exact temporary Nginx container and image
+  were removed, and no database container or volume was created, changed, or deleted for this task.
+
+Live model security acceptance pending: prompt-injection isolation for uploaded Resume chunks, full-prompt budget
+coverage, in-memory embedding disposal, provider timeout/failure fallback, structured output validation, and
+end-to-end provider data-handling verification cannot be accepted until the live endpoint exists. All related
+feature flags remain default-off.
+
 ## 17. Deferred after DEPLOY-02
 
 - legacy `.doc`, image uploads, OCR, scanned-PDF text recognition, original-file storage, and Resume download;

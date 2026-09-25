@@ -1,5 +1,6 @@
 package com.hermanli.careerpilot.database;
 
+import com.hermanli.careerpilot.identity.UserAccountRepository;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.document.Document;
@@ -34,6 +35,26 @@ class ResumeReviewVectorSchemaMigrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private UserAccountRepository userAccountRepository;
+
+    @Test
+    void resolvesClerkIdentityToOneStableInternalUser() {
+        String issuer = "https://migration-test.clerk.accounts.dev";
+        String subject = "user_migration_test";
+
+        long firstId = userAccountRepository.resolveOrCreateClerkUser(issuer, subject);
+        long secondId = userAccountRepository.resolveOrCreateClerkUser(issuer, subject);
+
+        assertEquals(firstId, secondId);
+        assertEquals(1, jdbcTemplate.queryForObject(
+                "select count(*) from app_user where clerk_issuer = ? and clerk_subject = ?",
+                Integer.class,
+                issuer,
+                subject
+        ));
+    }
 
     @Test
     void installsTheVectorExtensionAndCreatesOnlyTheVectorStoreColumns() {

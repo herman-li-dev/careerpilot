@@ -29,6 +29,9 @@ public class ResumeUploadTextExtractor {
     static final long MAX_FILE_SIZE_BYTES = 5L * 1024 * 1024;
     static final int MAX_TEXT_LENGTH = 100_000;
     private static final int MAX_PDF_PAGES = 50;
+    private static final int MAX_DOCX_ENTRY_COUNT = 1_000;
+    private static final long MAX_DOCX_ENTRY_SIZE_BYTES = 10L * 1024 * 1024;
+    private static final long MAX_DOCX_TOTAL_SIZE_BYTES = 20L * 1024 * 1024;
     private static final long PDF_MAX_MAIN_MEMORY_BYTES = 32L * 1024 * 1024;
     private static final MemoryUsageSetting PDF_MEMORY_USAGE =
             MemoryUsageSetting.setupMainMemoryOnly(PDF_MAX_MAIN_MEMORY_BYTES);
@@ -47,6 +50,10 @@ public class ResumeUploadTextExtractor {
     }
 
     public String extract(MultipartFile file) {
+        return extractWithMetadata(file).text();
+    }
+
+    public ExtractedResume extractWithMetadata(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResumeUploadException("EMPTY_FILE", "The uploaded resume file is empty.");
         }
@@ -81,7 +88,10 @@ public class ResumeUploadTextExtractor {
                     "The extracted resume text exceeds the 100,000 character limit."
             );
         }
-        return normalized;
+        return new ExtractedResume(type.name(), normalized);
+    }
+
+    public record ExtractedResume(String documentType, String text) {
     }
 
     private UploadType determineType(MultipartFile file) {
@@ -131,11 +141,28 @@ public class ResumeUploadTextExtractor {
     private void validateDocxContainer(byte[] content) {
         boolean hasContentTypes = false;
         boolean hasMainDocument = false;
+        int entryCount = 0;
+        long totalUncompressedBytes = 0;
         try (SeekableInMemoryByteChannel channel = new SeekableInMemoryByteChannel(content);
              ZipFile zip = ZipFile.builder().setSeekableByteChannel(channel).get()) {
             Enumeration<ZipArchiveEntry> entries = zip.getEntries();
             while (entries.hasMoreElements()) {
-                String lowerName = entries.nextElement().getName().toLowerCase(Locale.ROOT);
+                ZipArchiveEntry entry = entries.nextElement();
+                entryCount++;
+                long entrySize = entry.getSize();
+                if (entryCount > MAX_DOCX_ENTRY_COUNT
+                        || entrySize < 0
+                        || entrySize > MAX_DOCX_ENTRY_SIZE_BYTES
+                        || totalUncompressedBytes > MAX_DOCX_TOTAL_SIZE_BYTES - entrySize) {
+                    throw unsafeDocument();
+                }
+                totalUncompressedBytes += entrySize;
+
+                String name = entry.getName().replace('\\', '/');
+                if (name.startsWith("/") || name.equals("..") || name.startsWith("../") || name.contains("/../")) {
+                    throw unsafeDocument();
+                }
+                String lowerName = name.toLowerCase(Locale.ROOT);
                 hasContentTypes |= lowerName.equals("[content_types].xml");
                 hasMainDocument |= lowerName.equals("word/document.xml");
                 if (lowerName.endsWith("vbaproject.bin")) {
@@ -261,6 +288,13 @@ public class ResumeUploadTextExtractor {
 
     private ResumeUploadException tooLarge() {
         return new ResumeUploadException("FILE_TOO_LARGE", "The uploaded resume file exceeds the 5 MiB limit.");
+    }
+
+    private ResumeUploadException unsafeDocument() {
+        return new ResumeUploadException(
+                "UNSAFE_DOCUMENT",
+                "The uploaded resume document exceeds its safe processing limits."
+        );
     }
 
     private enum UploadType {

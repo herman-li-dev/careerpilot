@@ -1,6 +1,13 @@
 <template>
-  <router-view />
+  <ClerkAppGate v-if="clerkAuthEnabled" />
+  <router-view v-else />
 </template>
+
+<script setup>
+import ClerkAppGate from './components/ClerkAppGate.vue'
+
+const clerkAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+</script>
 
 <style>
 * {

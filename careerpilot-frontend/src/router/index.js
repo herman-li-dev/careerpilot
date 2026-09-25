@@ -11,13 +11,26 @@ const routes = [
     }
   },
   {
-    path: '/analyses/:analysisId',
+    path: '/app',
+    name: 'Workspace',
+    component: () => import('../views/CareerPilotHome.vue'),
+    meta: {
+      title: 'CareerPilot — Your workspace',
+      description: 'Manage your private CareerPilot preparation workspace.'
+    }
+  },
+  {
+    path: '/app/analyses/:analysisId',
     name: 'AnalysisReport',
     component: () => import('../views/CareerPilotReport.vue'),
     meta: {
       title: 'CareerPilot — Match report',
       description: 'Review your CareerPilot match report, preparation plan, and interview preparation.'
     }
+  },
+  {
+    path: '/analyses/:analysisId',
+    redirect: to => ({ name: 'AnalysisReport', params: to.params })
   }
 ]
 

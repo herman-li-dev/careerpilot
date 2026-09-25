@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -32,9 +33,26 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
             {"success":false,"data":null,"error":{"code":"DEMO_READ_ONLY","message":"The public demo is read-only."}}
             """.strip().getBytes(StandardCharsets.UTF_8);
 
+    private final boolean publicRagUploadEnabled;
+    private final boolean applicationAuthenticationEnabled;
+
+    public DemoReadOnlyFilter(
+            @Value("${careerpilot.public-rag.auth.enabled:false}") boolean publicRagAuthEnabled,
+            @Value("${careerpilot.public-rag.upload.enabled:false}") boolean publicRagUploadEnabled,
+            @Value("${careerpilot.auth.clerk-application-enabled:false}")
+            boolean applicationAuthenticationEnabled
+    ) {
+        this.applicationAuthenticationEnabled = applicationAuthenticationEnabled;
+        this.publicRagUploadEnabled = publicRagAuthEnabled && publicRagUploadEnabled;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        if (applicationAuthenticationEnabled) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         String path = applicationPath(request);
         if (SAFE_METHODS.contains(request.getMethod()) || isAllowedPost(request.getMethod(), path)) {
             filterChain.doFilter(request, response);
@@ -52,7 +70,8 @@ public class DemoReadOnlyFilter extends OncePerRequestFilter {
         return "POST".equals(method)
                 && (ALLOWED_POST_PATHS.contains(path)
                 || RESUME_REVIEW.matcher(path).matches()
-                || INTERVIEW_PREP.matcher(path).matches());
+                || INTERVIEW_PREP.matcher(path).matches()
+                || (publicRagUploadEnabled && "/rag/resume/validate".equals(path)));
     }
 
     private String applicationPath(HttpServletRequest request) {

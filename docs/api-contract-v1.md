@@ -10,7 +10,9 @@ Status: Implemented through RR-03 on 2026-09-01.
 - Resource IDs are JSON numbers backed by `BIGINT`.
 - Timestamps use ISO 8601 UTC, for example `2026-08-28T19:30:00Z`.
 - Validation and error messages returned to users are English.
-- Authentication uses a signed JWT stored in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie in production. Tokens are never placed in an SSE query string or browser storage.
+- Legacy mode uses a signed JWT stored in an `HttpOnly`, `Secure`, `SameSite=Strict` cookie. When
+  `CAREERPILOT_CLERK_AUTH_ENABLED=true`, personal APIs instead require a Clerk Bearer JWT; the frontend obtains a
+  fresh token from Clerk for normal HTTP and SSE requests and never places it in a query string or browser storage.
 - State-changing requests must come from an allowed application origin; CORS is not treated as authentication.
 
 Successful non-SSE response:
@@ -53,6 +55,12 @@ is exposed.
 
 ## 3. Authentication and profile
 
+In application-level Clerk mode, the backend validates the token and resolves `(iss, sub)` to an internal
+`app_user.id`. All resource ownership uses that server-derived ID. The legacy Cookie cannot authorize personal
+APIs in this mode, and a browser-supplied user ID is never treated as identity. The `/api/auth/register`,
+`/api/auth/login`, `/api/auth/demo-login`, and `/api/auth/logout` endpoints below describe legacy compatibility
+mode and return `404 RESOURCE_NOT_FOUND` while application-level Clerk authentication is enabled.
+
 ### `POST /api/auth/register`
 
 Request:
@@ -84,8 +92,8 @@ Clears the authentication cookie. Response: `204 No Content`.
 
 ### `GET /api/users/me`
 
-Returns the current user and career profile.
-Missing, expired, or invalid-signature cookies return `401 AUTHENTICATION_REQUIRED`.
+Returns the current user and career profile. Depending on the configured mode, a missing, expired, or invalid
+legacy Cookie or Clerk Bearer token returns `401 AUTHENTICATION_REQUIRED`.
 
 ### `PUT /api/users/me/profile`
 
@@ -473,7 +481,102 @@ ephemeral: closing or switching the dialog clears it, and invoking the review ag
 review flow. It shows whether model-assisted selection or deterministic fallback produced the result. The
 browser does not store suggestions, modify Resume text, or expose an endpoint for private knowledge upload.
 
-## 11. HTTP and application errors
+## 11. Public RAG authentication probe
+
+### `GET /api/rag/session`
+
+This additive endpoint exists when `CAREERPILOT_CLERK_AUTH_ENABLED=true` or the compatibility switch
+`CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED=true`. It accepts exactly one
+`Authorization: Bearer <Clerk session JWT>` header. The backend resolves Clerk's JWKS, accepts RS256 only, and
+validates the configured issuer, token timestamps, non-blank subject, an `azp` authorized party when that claim
+is present, and a non-pending session. It does not accept CareerPilot's existing session Cookie as a substitute.
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "authenticated": true
+  },
+  "error": null
+}
+```
+
+The response never returns a Clerk subject, email, provider token, or Resume data. Missing, malformed, expired,
+wrong-issuer, wrong-origin, invalid-signature, and pending tokens all return the same safe
+`401 AUTHENTICATION_REQUIRED` response. A valid request resolves or creates only the Clerk-to-`app_user`
+identity mapping; it performs no upload, model call, vector retrieval, or Resume write. Google-only sign-in
+methods must be configured in the Clerk Dashboard.
+Every public-RAG response includes `Cache-Control: no-store`, `Pragma: no-cache`, and a generated
+`X-Request-ID`. Authentication failures intentionally disclose no decoder or token detail.
+
+### `POST /api/rag/resume/validate`
+
+This additive multipart endpoint exists only when both `CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED=true` and
+`CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true`. It requires the same Clerk Bearer token as the session probe and
+accepts one `file` part. The file must be a parser-confirmed PDF or DOCX no larger than 5 MiB; the normalized
+extracted text is limited to 100,000 characters. PDF parsing is bounded to 50 pages. DOCX containers are bounded
+to 1,000 entries, 10 MiB per expanded entry, and 20 MiB total expanded content; unsafe archive paths are
+rejected. Scanned/textless, encrypted, macro-enabled, malformed, expansion-limit, or type-mismatched documents
+are rejected with the existing safe upload errors.
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "accepted": true,
+    "documentType": "DOCX",
+    "extractedCharacterCount": 1842
+  },
+  "error": null
+}
+```
+
+The original bytes and extracted text are request-scoped and are not inserted into a database or written to
+application-managed persistent file storage. Nginx or the multipart framework may use bounded container-local
+temporary request buffering; no upload volume is configured, and the request lifecycle discards that buffer.
+The response and application logs do not contain the original filename, extracted text, Clerk subject, or email.
+This endpoint performs no model, embedding, or vector-retrieval call. It validates the bounded upload path only
+and does not consume a daily model-call reservation. The production Nginx route
+limits this exact upload path together with the reserved live-review path to two requests per minute per trusted
+client IP, with one immediate burst request. Public-RAG application audit events contain only request ID,
+method, fixed route, status, and latency. They do not contain authorization headers, Clerk identity, IP address,
+filename, multipart fields, extracted text, prompt, embedding, or response body.
+
+The current validation endpoint does not send content to an AI provider. A future live review must present a
+separate disclosure that extracted Resume content is processed temporarily by the configured AI provider and
+is not stored by CareerPilot. Provider retention and processing claims must match the selected deployment's
+then-current terms; no stronger deletion claim is made by this contract.
+
+### Public RAG model-call guard
+
+`PUBLIC-RAG-GUARD-01` is not a new public endpoint. When explicitly enabled, it provides the mandatory Java
+boundary that a future `POST /api/rag/resume/review` implementation must acquire immediately before calling a
+model. It rejects work before a provider call when any of these limits would be exceeded:
+
+- three reservations per verified Clerk subject per UTC day;
+- 100 reservations globally per UTC day;
+- two concurrent model requests in the single backend process;
+- 6000 conservative UTF-8 input-budget units, 800 requested output tokens, or 6800 total budget units.
+
+The input estimate counts each UTF-8 byte as one budget unit. This deliberately overestimates typical English
+model tokens and avoids tokenizer-specific undercounting without adding another runtime dependency. The future
+provider request must still use the reserved output value as its explicit maximum-output setting.
+
+Quota reservation is transactionally serialized in PostgreSQL. The database receives only a date-bound
+HMAC-SHA256 principal key, request counts, and reserved token counts; it never receives the raw Clerk subject,
+email, Resume text, prompt, or model response. A reservation is intentionally conservative and remains counted
+after the permit is issued even if a later provider failure occurs. Closing the permit releases only the Java
+concurrency slot.
+
+The live-review endpoint is still unimplemented, so the guard currently performs no provider call and exposes
+no new browser behavior. Its feature flag must remain false until that endpoint wraps the complete provider
+call in the permit and maps guard rejection to the documented lexical/deterministic fallback.
+
+## 12. HTTP and application errors
 
 | HTTP status | Application code | Meaning |
 |---:|---|---|
@@ -483,7 +586,7 @@ browser does not store suggestions, modify Resume text, or expose an endpoint fo
 | `400` | `FILE_TYPE_MISMATCH` | Extension, declared MIME, signature, or container type does not agree |
 | `400` | `INVALID_DOCUMENT` | The PDF/DOCX structure is damaged or cannot be parsed safely |
 | `400` | `ENCRYPTED_DOCUMENT` | Encrypted Resume files are unsupported |
-| `400` | `UNSAFE_DOCUMENT` | Macro-enabled Resume files are unsupported |
+| `400` | `UNSAFE_DOCUMENT` | Macro-enabled, path-unsafe, or expansion-limit Resume files are unsupported |
 | `400` | `NO_EXTRACTABLE_TEXT` | No usable text was extracted; OCR/scanned PDFs are unsupported |
 | `400` | `EXTRACTED_TEXT_TOO_LARGE` | Normalized text exceeds 100,000 characters |
 | `401` | `AUTHENTICATION_REQUIRED` | No valid session |
@@ -492,6 +595,7 @@ browser does not store suggestions, modify Resume text, or expose an endpoint fo
 | `409` | `INVALID_RESOURCE_STATE` | Operation is invalid for current lifecycle state |
 | `409` | `EMAIL_ALREADY_REGISTERED` | An account already exists for the normalized email |
 | `422` | `MODEL_OUTPUT_INVALID` | Model response failed validation after bounded retry |
+| `429` | `PUBLIC_RAG_IP_RATE_LIMITED` | Trusted client IP exceeded the public Resume Review Nginx rate |
 | `429` | `MODEL_RATE_LIMITED` | Provider rate limit reached |
 | `413` | `FILE_TOO_LARGE` | Multipart bytes exceed the 5 MiB upload limit |
 | `500` | `INTERNAL_ERROR` | Unexpected server failure with no internal details exposed |
@@ -513,6 +617,6 @@ owned immutable session. Resume Review and Preparation Plan regeneration retain 
 fallback behavior. The response never contains a provider message, environment variable value, key, path,
 prompt, document text, or model output.
 
-## 12. Versioning rule
+## 13. Versioning rule
 
 V1 does not add `/v1` to every URL. The contract is versioned in this document and Git. A URL version is introduced only when an incompatible public contract must coexist with the old one.

@@ -32,6 +32,21 @@ public class UserAccountRepository {
         );
     }
 
+    public long resolveOrCreateClerkUser(String issuer, String subject) {
+        return jdbcTemplate.queryForObject(
+                """
+                insert into app_user (clerk_issuer, clerk_subject)
+                values (?, ?)
+                on conflict (clerk_issuer, clerk_subject)
+                do update set clerk_subject = excluded.clerk_subject
+                returning id
+                """,
+                Long.class,
+                issuer,
+                subject
+        );
+    }
+
     public Optional<StoredAccount> findByEmail(String email) {
         return jdbcTemplate.query(
                 """

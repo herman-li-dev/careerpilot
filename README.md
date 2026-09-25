@@ -37,6 +37,7 @@ Resume + job description
 | Layer | Technology |
 | --- | --- |
 | Frontend | Vue 3, Vue Router, Axios, Vite |
+| Identity | Existing CareerPilot sessions; optional Clerk Google sign-in boundary for public RAG |
 | Backend | Java 21, Spring Boot 3.4.4, Spring JDBC, Spring AI Alibaba |
 | Data | PostgreSQL 16 with pgvector, Flyway migrations |
 | Documents | Apache PDFBox, Apache POI |
@@ -74,7 +75,7 @@ account on startup, keeps AI and RAG off, and rejects non-whitelisted writes in 
 
 ## Local startup
 
-Prerequisites: Java 21, Node.js/npm, Docker Desktop (or PostgreSQL 16), and ports 5432, 8123, and 3000.
+Prerequisites: Java 21, Node.js/npm, Docker Desktop (or PostgreSQL 16), and ports 5433, 8123, and 3000.
 
 In PowerShell, start PostgreSQL with a local-only password:
 
@@ -82,6 +83,9 @@ In PowerShell, start PostgreSQL with a local-only password:
 $env:CAREERPILOT_DB_PASSWORD='choose-a-local-password'
 docker compose up -d postgres
 ```
+
+The local container is named `careerpilot-github-postgres` and publishes host port 5433, so it cannot
+collide with another checkout that runs its own `careerpilot-postgres` container on 5432.
 
 In the repository root, enable Flyway for the local database and start the backend. CareerPilot defaults to
 AI-disabled mode, so a model key is not required for authentication, CRUD, PDF/DOCX extraction, or reading
@@ -130,6 +134,57 @@ $env:DASHSCOPE_API_KEY='your-key'
 In AI-disabled mode, new parsing, Analysis, and Interview Preparation requests safely return
 `503 AI_UNAVAILABLE` without creating partial lifecycle records. Resume Review and plan operations retain their
 documented deterministic fallback behavior. Never write a real key or database password into repository files.
+
+### Optional application-level Google authentication
+
+`PUBLIC-AUTH-02` upgrades CareerPilot from the legacy email/password Cookie flow to a default-off,
+application-level Clerk boundary. When enabled, `/` displays Clerk sign-in, `/app/**` renders only after Clerk
+reports a signed-in session, and every personal API request carries a fresh Clerk Bearer JWT. The backend
+verifies RS256/JWKS signature, issuer, timestamps, non-blank subject, optional authorized-party claim, and
+non-pending session status. It atomically maps `(issuer, subject)` to the existing `app_user.id BIGINT`; Resume,
+Analysis, plan, interview, quota, and ownership code continues to use that server-derived internal ID. Browser
+supplied user IDs and the legacy session Cookie are not accepted as identity in this mode.
+Legacy register, password login, demo-login, and Cookie logout endpoints also return `404` in this mode so they
+cannot create a second, unreachable account path beside Google sign-in.
+
+Before enabling it, create a Clerk application, leave Google as the only sign-in/sign-up method, and set the
+exact frontend origin as an authorized party. Put backend values in the process environment and frontend values
+in `careerpilot-frontend/.env.local`; use the committed `.env.example` files only as field references. The Clerk
+secret key is not used by this slice and must never be placed in a Vite variable.
+
+```powershell
+$env:CAREERPILOT_CLERK_AUTH_ENABLED='true'
+$env:CAREERPILOT_CLERK_ISSUER='https://your-clerk-frontend-api'
+$env:CAREERPILOT_CLERK_AUTHORIZED_PARTIES='http://localhost:3000'
+```
+
+```dotenv
+VITE_CAREERPILOT_AUTH_ENABLED=true
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_replace_with_your_publishable_key
+```
+
+Google-only availability is enforced in the Clerk Dashboard. Do not turn on these feature flags until all other
+sign-in strategies are disabled there. `CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED` and
+`VITE_CAREERPILOT_PUBLIC_RAG_AUTH_ENABLED` remain compatibility switches for the earlier RAG-panel-only flow.
+`PUBLIC-UPLOAD-01` adds `POST /api/rag/resume/validate` only when both
+backend flags are true. It accepts one PDF or DOCX up to 5 MiB, extracts and validates text during the request,
+then returns only the document type and character count. It does not save the original file, filename, extracted
+text, or Clerk identity and does not call AI or RAG. Per-user/global quotas, IP rate limiting, and live RAG remain
+separate work and must be completed before enabling model-backed public review.
+
+`PUBLIC-RAG-GUARD-01` prepares that model-call boundary behind another default-off backend flag. Its defaults are
+three reservations per UTC day per Google user, 100 per UTC day globally, two concurrent model requests, 6000
+conservative UTF-8 input-budget units, 800 requested output tokens, and 6800 total budget units. PostgreSQL stores only daily counters
+and a date-bound HMAC of the verified Clerk subject. Set a separate 32-byte
+`CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET` before enabling the guard; never expose it through Vite. Upload
+validation does not consume these model-call reservations, and no public live model endpoint exists yet.
+
+`PUBLIC-RAG-SECURITY-01` hardens the pre-model boundary. DOCX containers have entry-count, per-entry,
+total-uncompressed-size, and path-safety checks in addition to POI's ZIP-bomb protection. Public RAG responses
+are marked `no-store`, and metadata-only audit events contain a generated request ID, method, fixed route,
+status, and latency—never a token, filename, Resume text, prompt, embedding, or response body. The UI accurately
+states that validation is not sent to AI; provider-processing disclosure and live model security acceptance
+remain pending until a live endpoint exists.
 
 ## Verification
 

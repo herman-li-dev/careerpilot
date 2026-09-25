@@ -109,6 +109,12 @@ The first sequence is the report-only milestone. The second becomes the full V1 
 | `SEC-004` | Analysis prompt requests shell/download/filesystem action | No such application-facing tool is available |
 | `SEC-005` | Delete a resume referenced by a report | Historical integrity rule is enforced; no silent cascade removes the report |
 | `SEC-006` | Send a state-changing cookie-authenticated request from a disallowed origin | Request is rejected before business data changes |
+| `SEC-007` | Submit malformed, macro-enabled, encrypted, path-traversing, or expansion-limit PDF/DOCX content | Request fails with a stable safe error and no document content is returned or persisted |
+| `SEC-008` | Send missing, duplicate, non-Bearer, whitespace-containing, expired, wrong-origin, or invalid-signature Clerk credentials | Request returns the same safe `401` and never trusts browser identity fields |
+| `SEC-009` | Inspect public-RAG response headers and audit events using token/document canaries | Response is `no-store`; logs contain request metadata only and no canary, identity, header, filename, or body |
+| `SEC-010` | Send three immediate requests to either exact public-RAG Nginx path from one trusted IP | The third request returns safe JSON `429`; a separate trusted IP uses a separate bucket |
+| `SEC-011` | Read the validation privacy notice | It says CareerPilot does not store the upload and that validation does not contact AI; live-provider disclosure remains pending |
+| `SEC-012` | In application-auth mode, call personal APIs with no token, a legacy Cookie, user A's Clerk token, and user B's resource ID | No token or Cookie returns `401`; valid tokens map to distinct internal users; cross-user access returns `404` without exposing ownership |
 
 ## 9. Milestone release gates
 
@@ -136,6 +142,13 @@ The first sequence is the report-only milestone. The second becomes the full V1 
   resistance, and safe fallback.
 - The default suite uses fake vector/model dependencies; the external profile verifies Flyway V8 and actual
   pgvector add/filter/search behavior with deterministic stub embeddings in an isolated database.
+- PUBLIC-RAG-GUARD-01 unit tests cover property validation, HMAC-only identity storage, conservative token
+  rejection, immediate concurrency rejection, idempotent permit release, and quota-denial release. Its external
+  PostgreSQL test verifies Flyway V9 plus concurrent user and cross-user global reservation limits.
+- PUBLIC-RAG-SECURITY-01 pre-model tests cover container expansion/path limits, authorization-header ambiguity,
+  response/log redaction, no-store headers, exact Nginx rate-limit paths, and accurate validation privacy text.
+  Prompt-injection, provider failure, output validation, and end-to-end deletion acceptance remain pending until
+  a live model endpoint exists.
 - A future interview-knowledge RAG requires its own fixed question set and acceptance criteria.
 - Backend tests, frontend build/E2E, Docker Compose startup, and README clone-to-run steps pass before final release.
 
