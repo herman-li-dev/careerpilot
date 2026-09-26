@@ -79,7 +79,10 @@ the exact public CareerPilot origin as `CAREERPILOT_CLERK_AUTHORIZED_PARTIES`, a
 key as `VITE_CLERK_PUBLISHABLE_KEY`. The application flag replaces the legacy Cookie identity on personal APIs
 and provisions an internal `app_user.id` through the unique Clerk `(issuer, subject)` mapping. Never add a Clerk
 secret key to Compose or a Vite variable. Keep AI and RAG disabled until quota, rate-limit, concurrency, and
-cost-control verification is complete. Upload
+cost-control verification is complete. Set both `CAREERPILOT_DEMO_ENABLED=false` and
+`VITE_CAREERPILOT_DEMO_MODE=false` for this authenticated personal-application mode; the latter is a frontend
+build argument, so rebuild the frontend image after changing it. Keeping the two values explicit prevents the
+authenticated report page from inheriting read-only demo behavior. Upload
 validation additionally requires `CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true` and
 `VITE_CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true`; it discards the request bytes and extracted text and never
 invokes the provider. The

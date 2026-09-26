@@ -138,7 +138,8 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-const demoMode = import.meta.env.VITE_CAREERPILOT_DEMO_MODE === 'true'
+const clerkAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+const demoMode = import.meta.env.VITE_CAREERPILOT_DEMO_MODE === 'true' && !clerkAuthEnabled
 const currentUser = ref(null)
 const analysis = ref(null)
 const resume = ref(null)
