@@ -1,5 +1,6 @@
 package com.hermanli.careerpilot.review;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class SpringAiResumeReviewGeneratorTest {
 
         ArgumentCaptor<Prompt> prompt = ArgumentCaptor.forClass(Prompt.class);
         verify(chatModel).call(prompt.capture());
+        assertThat(prompt.getValue().getOptions()).isInstanceOf(DashScopeChatOptions.class);
         assertThat(prompt.getValue().getOptions().getMaxTokens()).isEqualTo(321);
     }
 }

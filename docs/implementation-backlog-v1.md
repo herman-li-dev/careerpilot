@@ -1085,7 +1085,7 @@ immediately before provider work, sets the provider output cap, and closes the p
 denials return errors and never enter fallback. Remaining production acceptance is confirming BaoTa overwrites
 `X-Real-IP`, the frontend container remains host-loopback-only, and live counters behave as configured.
 
-### `PUBLIC-RAG-SECURITY-01` — Pre-model security and privacy hardening — Implemented, live model security acceptance pending
+### `PUBLIC-RAG-SECURITY-01` — Pre-model security and privacy hardening — Implemented and locally accepted; production acceptance pending
 
 Scope: Harden the already implemented public upload, Clerk authentication, rate-limit, logging, and privacy
 boundaries without adding or enabling a live provider-backed endpoint.
@@ -1119,12 +1119,13 @@ Verification completed on 2026-09-20:
 - production Compose interpolation and `git diff --check` passed. The exact temporary Nginx container and image
   were removed, and no database container or volume was created, changed, or deleted for this task.
 
-Automated live-path acceptance now covers ownership-before-provider, bounded prompt input, provider
-timeout/failure fallback, strict structured-output validation, permit release, and quota-bypass prevention.
-End-to-end provider data-handling and production-log verification remain pending; all related feature flags
-remain default-off.
+Automated live-path acceptance covers ownership-before-provider, bounded prompt input, provider timeout/failure
+fallback, strict structured-output validation, permit release, and quota-bypass prevention. The 2026-09-25 local
+live-provider smoke test also confirmed the provider disclosure, metadata-only request audit, redacted fallback
+diagnostics, and non-persistent Review result. Production proxy/log verification remains pending, and all related
+feature flags remain default-off.
 
-### `PUBLIC-RAG-LIVE-01` — Guarded private Resume vector review — Implemented; live provider acceptance pending
+### `PUBLIC-RAG-LIVE-01` — Guarded private Resume vector review — Implemented and locally accepted; production acceptance pending
 
 Scope: Connect the existing Clerk identity, private Resume ownership, pgvector review, Qwen selection, quota,
 concurrency, validation, and fallback components without redesigning authentication or persisting Review output.
@@ -1139,7 +1140,8 @@ Implemented boundaries:
   `503 AI_UNAVAILABLE` contract;
 - the guard is acquired immediately before provider work and its `AutoCloseable` permit is released on success,
   timeout, provider failure, invalid JSON, and unexpected exceptions;
-- provider output uses the configured reserved maximum explicitly; quota remains charged after reservation;
+- provider output uses the configured reserved maximum through the provider-native DashScope option; quota
+  remains charged after reservation;
 - recoverable vector/model failures use the existing lexical/deterministic fallback, while authentication,
   ownership, validation, token, concurrency, and quota failures never fall back;
 - the frontend uses the guarded route in Clerk application mode and requires a provider-processing
@@ -1154,9 +1156,24 @@ Automated verification completed on 2026-09-25:
 - normal and Clerk application-mode frontend builds passed with 130 modules transformed;
 - local and production Compose interpolation passed, and `git diff --check` reported no whitespace errors.
 
-Remaining acceptance: run one production-equivalent Google-authenticated Resume through the live provider,
-confirm vector citation output and lexical fallback, inspect redacted logs and quota counters, and verify the
-deployed IP limit before enabling the feature publicly.
+Local live-provider verification completed on 2026-09-25:
+
+- the independent DashScope permission and minimal-generation probes authenticated the process key and completed
+  a `qwen-plus` request without exposing the key;
+- the first guarded browser run safely returned the deterministic lexical fallback and metadata-only HTTP 200
+  audit when the generic Spring `ChatOptions` adapter failed; safe exception-class diagnostics identified
+  `NotWritablePropertyException` without logging provider messages or Resume content;
+- the provider option was corrected to `DashScopeChatOptions` while retaining the 800-token cap, and the
+  post-fix focused tests passed 14/14;
+- a Google-authenticated owned Resume then completed the guarded request in 3.683 seconds with HTTP 200,
+  `MODEL_ASSISTED_SYNTHETIC_VECTOR_RAG`, two bounded Skills suggestions, and citations containing the synthetic
+  guide version, section, chunk, and excerpt;
+- the Review remained non-persistent, and the application logs contained only startup metadata, fixed-route
+  audit fields, status, latency, and the earlier safe failure classification.
+
+Remaining acceptance: repeat the successful flow on the deployed stack, inspect production quota counters and
+redacted logs, verify the BaoTa-to-container trusted-IP boundary and Nginx limit, and keep the feature flags off
+until those production checks pass.
 
 ## 17. Deferred after DEPLOY-02
 

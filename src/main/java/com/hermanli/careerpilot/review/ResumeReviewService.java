@@ -12,6 +12,7 @@ import com.hermanli.careerpilot.documents.Resume;
 import com.hermanli.careerpilot.documents.ResumeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientResponseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -285,7 +286,12 @@ public class ResumeReviewService {
             try {
                 modelOutput = resumeReviewGenerator.generate(request);
             } catch (RuntimeException exception) {
-                log.warn("Resume review model provider unavailable; using deterministic fallback.");
+                log.warn(
+                        "Resume review model provider unavailable; using deterministic fallback: "
+                                + "failureTypes={}, httpStatus={}",
+                        safeFailureTypes(exception),
+                        safeHttpStatus(exception)
+                );
                 return null;
             }
             try {
@@ -296,6 +302,28 @@ public class ResumeReviewService {
         }
         log.warn("Resume review model output rejected twice; using deterministic fallback.");
         return null;
+    }
+
+    private static String safeFailureTypes(Throwable failure) {
+        List<String> types = new ArrayList<>();
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 6; depth++) {
+            String type = current.getClass().getSimpleName();
+            types.add(type.isBlank() ? current.getClass().getName() : type);
+            current = current.getCause();
+        }
+        return String.join(">", types);
+    }
+
+    private static String safeHttpStatus(Throwable failure) {
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 6; depth++) {
+            if (current instanceof RestClientResponseException responseException) {
+                return Integer.toString(responseException.getStatusCode().value());
+            }
+            current = current.getCause();
+        }
+        return "none";
     }
 
     private List<ReviewSuggestion> resolveModelSelections(String modelOutput, List<ReviewCandidate> candidates) {

@@ -262,7 +262,8 @@ class ResumeReviewServiceTest {
                 "Resume review model output rejected: category=MALFORMED_OUTPUT, attempt=1",
                 "Resume review model output rejected: category=MALFORMED_OUTPUT, attempt=2",
                 "Resume review model output rejected twice; using deterministic fallback.",
-                "Resume review model provider unavailable; using deterministic fallback."
+                "Resume review model provider unavailable; using deterministic fallback: "
+                        + "failureTypes=IllegalStateException, httpStatus=none"
         ), messages);
         String logs = String.join(" ", messages);
         assertFalse(logs.contains(resumeMarker));

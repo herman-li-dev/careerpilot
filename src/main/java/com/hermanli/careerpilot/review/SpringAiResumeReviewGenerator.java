@@ -2,10 +2,10 @@ package com.hermanli.careerpilot.review;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -43,7 +43,7 @@ public class SpringAiResumeReviewGenerator implements ResumeReviewGenerator {
             return chatClient.prompt()
                     .system(INSTRUCTIONS)
                     .user("Candidate pairs JSON:\n---\n" + candidates + "\n---")
-                    .options(ChatOptions.builder().maxTokens(maxOutputTokens).build())
+                    .options(DashScopeChatOptions.builder().withMaxToken(maxOutputTokens).build())
                     .call()
                     .content();
         } catch (JsonProcessingException exception) {
