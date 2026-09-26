@@ -18,32 +18,26 @@
         sign-in-fallback-redirect-url="/app"
         sign-up-fallback-redirect-url="/app"
       />
+      <nav class="auth-legal" aria-label="Public information">
+        <RouterLink to="/">About CareerPilot</RouterLink>
+        <RouterLink to="/privacy">Privacy</RouterLink>
+        <RouterLink to="/terms">Terms</RouterLink>
+      </nav>
     </main>
     <router-view v-else />
   </ClerkLoaded>
 </template>
 
 <script setup>
-import { watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { ClerkLoaded, ClerkLoading, SignIn, useAuth } from '@clerk/vue'
 import { configureAuthTokenProvider } from '../api'
 
-const router = useRouter()
 const { getToken, isSignedIn } = useAuth()
 
 configureAuthTokenProvider(async () => {
   if (!isSignedIn.value) return null
   return getToken.value()
 })
-
-watch(isSignedIn, signedIn => {
-  if (signedIn && router.currentRoute.value.path === '/') {
-    router.replace('/app')
-  } else if (!signedIn && router.currentRoute.value.path !== '/') {
-    router.replace('/')
-  }
-}, { immediate: true })
 </script>
 
 <style scoped>
@@ -62,6 +56,17 @@ watch(isSignedIn, signedIn => {
 h1 { font-size: clamp(2.7rem, 7vw, 5.5rem); line-height: .98; letter-spacing: -.055em; }
 p:not(.eyebrow) { max-width: 580px; margin-top: 22px; color: #64708a; font-size: 1.08rem; line-height: 1.6; }
 .auth-status { grid-column: 1 / -1; color: #64708a; text-align: center; }
+.auth-legal {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+  color: #5967d8;
+  font-size: .86rem;
+  font-weight: 700;
+}
+.auth-legal a:hover { text-decoration: underline; }
 @media (max-width: 860px) {
   .auth-shell { grid-template-columns: 1fr; align-content: center; }
 }

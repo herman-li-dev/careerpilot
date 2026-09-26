@@ -1,13 +1,35 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+const clerkApplicationAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+
 const routes = [
   {
     path: '/',
     name: 'Home',
-    component: () => import('../views/CareerPilotHome.vue'),
+    component: clerkApplicationAuthEnabled
+      ? () => import('../views/PublicLanding.vue')
+      : () => import('../views/CareerPilotHome.vue'),
     meta: {
       title: 'CareerPilot — Resume and job description preparation',
-      description: 'Save English resumes and job descriptions for CareerPilot matching.'
+      description: 'CareerPilot turns Resume and job-description evidence into focused career preparation.'
+    }
+  },
+  {
+    path: '/privacy',
+    name: 'PrivacyPolicy',
+    component: () => import('../views/PrivacyPolicy.vue'),
+    meta: {
+      title: 'Privacy Policy — CareerPilot',
+      description: 'How CareerPilot handles Google sign-in, Resume data, AI processing, and account information.'
+    }
+  },
+  {
+    path: '/terms',
+    name: 'TermsOfService',
+    component: () => import('../views/TermsOfService.vue'),
+    meta: {
+      title: 'Terms of Service — CareerPilot',
+      description: 'Terms for using the CareerPilot career-preparation application.'
     }
   },
   {
@@ -15,6 +37,7 @@ const routes = [
     name: 'Workspace',
     component: () => import('../views/CareerPilotHome.vue'),
     meta: {
+      requiresAuthentication: true,
       title: 'CareerPilot — Your workspace',
       description: 'Manage your private CareerPilot preparation workspace.'
     }
@@ -24,6 +47,7 @@ const routes = [
     name: 'AnalysisReport',
     component: () => import('../views/CareerPilotReport.vue'),
     meta: {
+      requiresAuthentication: true,
       title: 'CareerPilot — Match report',
       description: 'Review your CareerPilot match report, preparation plan, and interview preparation.'
     }
@@ -42,6 +66,10 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   if (to.meta.title) {
     document.title = to.meta.title
+  }
+  if (to.meta.description) {
+    document.querySelector('meta[name="description"]')
+      ?.setAttribute('content', to.meta.description)
   }
   next()
 })

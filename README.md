@@ -138,8 +138,9 @@ documented deterministic fallback behavior. Never write a real key or database p
 ### Optional application-level Google authentication
 
 `PUBLIC-AUTH-02` upgrades CareerPilot from the legacy email/password Cookie flow to a default-off,
-application-level Clerk boundary. When enabled, `/` displays Clerk sign-in, `/app/**` renders only after Clerk
-reports a signed-in session, and every personal API request carries a fresh Clerk Bearer JWT. The backend
+application-level Clerk boundary. When enabled, `/` remains a public product page, `/privacy` and `/terms` expose
+the public legal notices, and `/app/**` renders only after Clerk reports a signed-in session. Every personal API
+request carries a fresh Clerk Bearer JWT. The backend
 verifies RS256/JWKS signature, issuer, timestamps, non-blank subject, optional authorized-party claim, and
 non-pending session status. It atomically maps `(issuer, subject)` to the existing `app_user.id BIGINT`; Resume,
 Analysis, plan, interview, quota, and ownership code continues to use that server-derived internal ID. Browser

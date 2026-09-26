@@ -82,8 +82,14 @@ secret key to Compose or a Vite variable. Keep AI and RAG disabled until quota, 
 cost-control verification is complete. Set both `CAREERPILOT_DEMO_ENABLED=false` and
 `VITE_CAREERPILOT_DEMO_MODE=false` for this authenticated personal-application mode; the latter is a frontend
 build argument, so rebuild the frontend image after changing it. Keeping the two values explicit prevents the
-authenticated report page from inheriting read-only demo behavior. Upload
-validation additionally requires `CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true` and
+authenticated report page from inheriting read-only demo behavior.
+
+Before publishing the Google OAuth application, deploy the authenticated frontend and verify that `/` describes
+CareerPilot without requiring sign-in, while `/privacy` and `/terms` are publicly reachable on the same verified
+domain. Configure those exact HTTPS URLs in Google Auth Platform. `/app/**` must remain behind Clerk Google
+sign-in; a public legal route must never expose personal APIs or workspace data.
+
+Upload validation additionally requires `CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true` and
 `VITE_CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED=true`; it discards the request bytes and extracted text and never
 invokes the provider. The
 frontend container uses that same exact Clerk issuer when rendering its Nginx CSP and separately allows only

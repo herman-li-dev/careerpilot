@@ -1,12 +1,18 @@
 <template>
-  <ClerkAppGate v-if="clerkAuthEnabled" />
+  <ClerkAppGate v-if="protectedByClerk" />
   <router-view v-else />
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import ClerkAppGate from './components/ClerkAppGate.vue'
 
-const clerkAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+const route = useRoute()
+const clerkApplicationAuthEnabled = import.meta.env.VITE_CAREERPILOT_AUTH_ENABLED === 'true'
+const protectedByClerk = computed(() => (
+  clerkApplicationAuthEnabled && route.meta.requiresAuthentication === true
+))
 </script>
 
 <style>
