@@ -149,6 +149,10 @@ The first sequence is the report-only milestone. The second becomes the full V1 
   response/log redaction, no-store headers, exact Nginx rate-limit paths, and accurate validation privacy text.
   PUBLIC-RAG-LIVE-01 tests additionally cover ownership-before-quota, unguarded-route removal, quota/busy errors,
   permit release on exception, explicit output-token options, provider failure, and invalid-output fallback.
+- PUBLIC-RAG-ACTIVATION-GUARD-01 tests prove Resume Parse performs ownership lookup before guard/provider work,
+  guard rejection leaves parse state unchanged, provider failure releases the permit, Parse uses the shared
+  output-token cap, and job parsing plus other general model workflows return `503 AI_UNAVAILABLE` in Clerk
+  application mode rather than bypassing quota.
 - A future interview-knowledge RAG requires its own fixed question set and acceptance criteria.
 - Backend tests, frontend build/E2E, Docker Compose startup, and README clone-to-run steps pass before final release.
 

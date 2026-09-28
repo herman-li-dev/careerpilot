@@ -32,7 +32,7 @@ public class PublicRagLiveReviewService {
     }
 
     public ResumeReview review(long userId, String clerkSubject, long resumeId) {
-        aiAvailability.requireEnabled();
+        aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW);
         if (!ragEnabled) {
             throw new AiUnavailableException();
         }

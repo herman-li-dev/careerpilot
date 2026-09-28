@@ -14,10 +14,10 @@ public class PublicRagGuardRejectedException extends RuntimeException {
     }
 
     public enum Reason {
-        TOKEN_LIMIT("The public Resume Review request exceeds its token limit."),
-        CONCURRENCY_LIMIT("Public Resume Review is busy. Please try again later."),
-        USER_DAILY_LIMIT("Your daily public Resume Review limit has been reached."),
-        GLOBAL_DAILY_LIMIT("The public Resume Review daily limit has been reached.");
+        TOKEN_LIMIT("The public Resume AI request exceeds its token limit."),
+        CONCURRENCY_LIMIT("Public Resume AI processing is busy. Please try again later."),
+        USER_DAILY_LIMIT("Your daily public Resume AI limit has been reached."),
+        GLOBAL_DAILY_LIMIT("The public Resume AI daily limit has been reached.");
 
         private final String message;
 

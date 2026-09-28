@@ -5,6 +5,8 @@ import com.hermanli.careerpilot.analysis.AnalysisReportView;
 import com.hermanli.careerpilot.analysis.AnalysisStatus;
 import com.hermanli.careerpilot.analysis.MatchReport;
 import com.hermanli.careerpilot.api.ResourceNotFoundException;
+import com.hermanli.careerpilot.ai.AiAvailability;
+import com.hermanli.careerpilot.ai.AiUnavailableException;
 import com.hermanli.careerpilot.documents.JobDescriptionRepository;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +25,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PlanServiceTest {
@@ -32,7 +35,8 @@ class PlanServiceTest {
     private final JobDescriptionRepository jobDescriptionRepository = mock(JobDescriptionRepository.class);
     private final PlanGenerationService planGenerationService = mock(PlanGenerationService.class);
     private final PlanService planService = new PlanService(
-            planRepository, analysisReportService, jobDescriptionRepository, planGenerationService
+            planRepository, analysisReportService, jobDescriptionRepository, planGenerationService,
+            new AiAvailability(true)
     );
 
     @Test
@@ -203,6 +207,24 @@ class PlanServiceTest {
 
         assertThrows(ResourceNotFoundException.class,
                 () -> planService.updateTask(1L, 2L, 3L, new UpdatePlanTaskRequest("TODO", null)));
+    }
+
+    @Test
+    void publicApplicationBlocksPlanRegenerationAfterOwnershipCheck() {
+        CareerPlan plan = new CareerPlan(2L, 1L, 9L, "Plan", "Summary", (short) 14, "ACTIVE",
+                Instant.EPOCH, Instant.EPOCH);
+        when(planRepository.findPlanByIdAndUserId(2L, 1L)).thenReturn(Optional.of(plan));
+        PlanService publicService = new PlanService(
+                planRepository,
+                analysisReportService,
+                jobDescriptionRepository,
+                planGenerationService,
+                new AiAvailability(true, true)
+        );
+
+        assertThrows(AiUnavailableException.class, () -> publicService.regenerateRemaining(1L, 2L));
+
+        verifyNoInteractions(planGenerationService);
     }
 
     private PlanTask task(long id, String status, Instant completedAt, Instant archivedAt, LocalDate dueDate) {

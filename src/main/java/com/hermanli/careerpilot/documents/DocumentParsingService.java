@@ -5,9 +5,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hermanli.careerpilot.ai.AiAvailability;
 import com.hermanli.careerpilot.api.ResourceNotFoundException;
+import com.hermanli.careerpilot.identity.AuthenticationRequiredException;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 @Service
@@ -30,25 +36,60 @@ public class DocumentParsingService {
     private final DocumentParser documentParser;
     private final ObjectMapper objectMapper;
     private final AiAvailability aiAvailability;
+    private final ObjectProvider<PublicRagGuardService> guardProvider;
+    private final PublicRagGuardProperties guardProperties;
+    private final boolean clerkApplicationAuthenticationEnabled;
 
     public DocumentParsingService(
             ResumeRepository resumeRepository,
             JobDescriptionRepository jobDescriptionRepository,
             DocumentParser documentParser,
             ObjectMapper objectMapper,
-            AiAvailability aiAvailability
+            AiAvailability aiAvailability,
+            ObjectProvider<PublicRagGuardService> guardProvider,
+            PublicRagGuardProperties guardProperties,
+            @Value("${careerpilot.auth.clerk-application-enabled:false}")
+            boolean clerkApplicationAuthenticationEnabled
     ) {
         this.resumeRepository = resumeRepository;
         this.jobDescriptionRepository = jobDescriptionRepository;
         this.documentParser = documentParser;
         this.objectMapper = objectMapper;
         this.aiAvailability = aiAvailability;
+        this.guardProvider = guardProvider;
+        this.guardProperties = guardProperties;
+        this.clerkApplicationAuthenticationEnabled = clerkApplicationAuthenticationEnabled;
     }
 
     public Resume parseResume(long resumeId, long userId) {
+        return parseResume(resumeId, userId, null);
+    }
+
+    public Resume parseResume(long resumeId, long userId, String clerkSubject) {
         Resume resume = resumeRepository.findByIdAndUserId(resumeId, userId)
                 .orElseThrow(ResourceNotFoundException::new);
-        aiAvailability.requireEnabled();
+        aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_PARSE);
+        if (!clerkApplicationAuthenticationEnabled) {
+            return parseOwnedResume(resume, userId);
+        }
+        if (clerkSubject == null || clerkSubject.isBlank()) {
+            throw new AuthenticationRequiredException();
+        }
+        PublicRagGuardService guard = guardProvider.getIfAvailable();
+        if (guard == null) {
+            throw new com.hermanli.careerpilot.ai.AiUnavailableException();
+        }
+        try (PublicRagGuardService.GuardPermit ignored = guard.acquire(
+                clerkSubject,
+                List.of(resume.rawText()),
+                guardProperties.getMaxOutputTokens()
+        )) {
+            return parseOwnedResume(resume, userId);
+        }
+    }
+
+    private Resume parseOwnedResume(Resume resume, long userId) {
+        long resumeId = resume.id();
         if (!resumeRepository.markRunning(resumeId, userId)) {
             throw new InvalidDocumentStateException();
         }

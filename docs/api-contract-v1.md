@@ -178,6 +178,14 @@ for an invalid state. A successful parse returns `COMPLETED` after storing valid
 model output or an unavailable provider returns the persisted resource in `FAILED` state with a safe
 English retry message. The original text is never replaced.
 
+In application-level Clerk mode, the backend derives both the internal owner and Clerk subject from the verified
+Bearer JWT. It loads the owned Resume before any guard or provider work, then requires AI and the public-RAG
+guard, checks the same conservative token budget, atomically reserves the same per-user/global UTC daily quota,
+and holds the same Java concurrency permit used by live review. Guard rejection occurs before `RUNNING` is
+written and never calls the model. Once reserved, the request remains counted even if parsing later fails; the
+permit is released on every success and exception path. The provider output is capped at the configured reserved
+maximum. When application-level Clerk mode is disabled, the legacy authenticated parsing behavior is unchanged.
+
 ### `DELETE /api/resumes/{resumeId}`
 
 Deletes an unreferenced resume. If a historical report references it, the server returns `409 INVALID_RESOURCE_STATE`; V1 never silently deletes the report.
@@ -209,7 +217,9 @@ Job-description lists use the same newest-first order as resumes.
 
 ### `POST /api/job-descriptions/{jobDescriptionId}/parse`
 
-Uses the same ownership, retry, result, and state rules as resume parsing.
+Uses the same legacy ownership, retry, result, and state rules as resume parsing. In application-level Clerk mode,
+this model-backed endpoint is intentionally unavailable and returns `503 AI_UNAVAILABLE`; it is not allowed to
+bypass the guarded Resume Parse and live-review boundary.
 
 ## 6. Analysis resources
 
@@ -572,8 +582,10 @@ are returned as errors and never enter an unguarded fallback. In Clerk applicati
 ### Public RAG model-call guard
 
 `PUBLIC-RAG-GUARD-01` provides the mandatory Java boundary acquired by
-`POST /api/rag/resume/review` immediately before provider work. It rejects work before a provider call when any
-of these limits would be exceeded:
+`POST /api/rag/resume/review` and, in Clerk application mode, `POST /api/resumes/{resumeId}/parse` immediately
+before provider work. Both operations share the following limits and counters; a parse and a review by the same
+user therefore consume two reservations. The guard rejects work before a provider call when any limit would be
+exceeded:
 
 - three reservations per verified Clerk subject per UTC day;
 - 100 reservations globally per UTC day;
@@ -606,7 +618,7 @@ bypassed. The quota remains counted once reserved even if later recoverable prov
 | `400` | `UNSAFE_DOCUMENT` | Macro-enabled, path-unsafe, or expansion-limit Resume files are unsupported |
 | `400` | `NO_EXTRACTABLE_TEXT` | No usable text was extracted; OCR/scanned PDFs are unsupported |
 | `400` | `EXTRACTED_TEXT_TOO_LARGE` | Normalized text exceeds 100,000 characters |
-| `400` | `PUBLIC_RAG_TOKEN_LIMIT` | Resume evidence exceeds the configured live-review input budget |
+| `400` | `PUBLIC_RAG_TOKEN_LIMIT` | Resume input exceeds the configured public-AI token budget |
 | `401` | `AUTHENTICATION_REQUIRED` | No valid session |
 | `401` | `INVALID_CREDENTIALS` | Login credentials were not accepted |
 | `404` | `RESOURCE_NOT_FOUND` | Missing or not owned by current user |
@@ -614,9 +626,9 @@ bypassed. The quota remains counted once reserved even if later recoverable prov
 | `409` | `EMAIL_ALREADY_REGISTERED` | An account already exists for the normalized email |
 | `422` | `MODEL_OUTPUT_INVALID` | Model response failed validation after bounded retry |
 | `429` | `PUBLIC_RAG_IP_RATE_LIMITED` | Trusted client IP exceeded the public Resume Review Nginx rate |
-| `429` | `PUBLIC_RAG_BUSY` | The single-process live-review concurrency limit is full |
-| `429` | `PUBLIC_RAG_USER_LIMIT` | The verified user reached the UTC daily live-review quota |
-| `429` | `PUBLIC_RAG_GLOBAL_LIMIT` | The application reached the UTC daily live-review quota |
+| `429` | `PUBLIC_RAG_BUSY` | The single-process public Resume AI concurrency limit is full |
+| `429` | `PUBLIC_RAG_USER_LIMIT` | The verified user reached the shared UTC daily Resume AI quota |
+| `429` | `PUBLIC_RAG_GLOBAL_LIMIT` | The application reached the shared UTC daily Resume AI quota |
 | `429` | `MODEL_RATE_LIMITED` | Provider rate limit reached |
 | `413` | `FILE_TOO_LARGE` | Multipart bytes exceed the 5 MiB upload limit |
 | `500` | `INTERNAL_ERROR` | Unexpected server failure with no internal details exposed |

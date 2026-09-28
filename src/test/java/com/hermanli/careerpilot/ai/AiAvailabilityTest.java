@@ -1,0 +1,30 @@
+package com.hermanli.careerpilot.ai;
+
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class AiAvailabilityTest {
+
+    @Test
+    void publicApplicationAllowsOnlyExplicitlyGuardedOperations() {
+        AiAvailability availability = new AiAvailability(true, true);
+
+        assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_PARSE))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(availability::requireEnabled).isInstanceOf(AiUnavailableException.class);
+    }
+
+    @Test
+    void disabledAiRejectsGuardedOperationsToo() {
+        AiAvailability availability = new AiAvailability(false, true);
+
+        assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_PARSE))
+                .isInstanceOf(AiUnavailableException.class);
+        assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW))
+                .isInstanceOf(AiUnavailableException.class);
+    }
+}

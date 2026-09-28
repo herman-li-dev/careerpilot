@@ -100,7 +100,7 @@ class PublicRagLiveReviewServiceTest {
 
     private PublicRagLiveReviewService service(boolean aiEnabled, boolean ragEnabled) {
         return new PublicRagLiveReviewService(
-                new AiAvailability(aiEnabled),
+                new AiAvailability(aiEnabled, true),
                 resumeReviewService,
                 guardProvider,
                 guardProperties,

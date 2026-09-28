@@ -182,6 +182,15 @@ validation does not consume model-call reservations. `PUBLIC-RAG-LIVE-01` adds t
 path in an automatically closed concurrency permit, and disables the legacy unguarded review route in Clerk
 application mode. AI, RAG, and guard flags must all be enabled; otherwise the route returns `503 AI_UNAVAILABLE`.
 
+`PUBLIC-RAG-ACTIVATION-GUARD-01` extends the same mandatory guard to
+`POST /api/resumes/{resumeId}/parse` in Clerk application mode. Ownership is resolved before token checks or
+quota reservation, and each provider-backed parse shares the same per-user/global daily counters and concurrency
+pool as live review. A reservation remains charged after provider work starts, including failed attempts. Other
+model-backed endpoints (job-description parsing, Analysis creation/execution, plan regeneration, and new
+Interview Preparation generation) remain blocked with `503 AI_UNAVAILABLE` in public application mode until a
+future task gives each workflow an explicit guard and acceptance criteria. Legacy non-Clerk deployments retain
+their existing behavior.
+
 `PUBLIC-RAG-SECURITY-01` hardens the pre-model boundary. DOCX containers have entry-count, per-entry,
 total-uncompressed-size, and path-safety checks in addition to POI's ZIP-bomb protection. Public RAG responses
 are marked `no-store`, and metadata-only audit events contain a generated request ID, method, fixed route,

@@ -84,6 +84,7 @@ public class AnalysisReportService {
         AnalysisReportRepository.StoredAnalysisReport analysis = analysisReportRepository
                 .findByIdAndUserId(analysisId, userId)
                 .orElseThrow(ResourceNotFoundException::new);
+        aiAvailability.requireEnabled();
         if (analysis.status() != AnalysisStatus.PENDING || !analysisReportRepository.markRunning(analysisId, userId)) {
             return;
         }

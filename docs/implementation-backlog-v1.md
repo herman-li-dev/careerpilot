@@ -1175,6 +1175,35 @@ Remaining acceptance: repeat the successful flow on the deployed stack, inspect 
 redacted logs, verify the BaoTa-to-container trusted-IP boundary and Nginx limit, and keep the feature flags off
 until those production checks pass.
 
+### `PUBLIC-RAG-ACTIVATION-GUARD-01` — Guard Resume Parse and close public model bypasses — Implemented and locally accepted; production acceptance pending
+
+Scope: Before enabling provider-backed features for public Google users, place persisted Resume Parse behind the
+same verified identity, conservative token budget, PostgreSQL user/global quota, and Java concurrency boundary as
+live review, while preventing other model-backed endpoints from becoming unmetered bypasses.
+
+Implemented boundaries:
+
+- `POST /api/resumes/{resumeId}/parse` derives the owner and Clerk subject from the verified request, performs the
+  ownership lookup before guard or provider work, and uses the shared public-RAG daily counters and semaphore;
+- token, concurrency, and quota rejection occurs before `RUNNING` is written or the parser is called; quota stays
+  reserved once paid work begins, while the `AutoCloseable` permit is released on every provider exception path;
+- the parser uses the same configured provider-native maximum-output setting that was reserved by the guard;
+- application-level Clerk mode centrally permits only explicitly guarded Resume Parse and live review operations;
+  job-description parsing, Analysis creation/execution, plan regeneration, and new Interview Preparation model
+  generation return `503 AI_UNAVAILABLE` instead of reaching an unguarded model path;
+- legacy non-Clerk deployments retain their previous AI behavior; no dependency or database migration was added.
+
+Automated verification completed on 2026-09-28:
+
+- 22 focused availability, Parse guard, live-review compatibility, and plan-bypass tests passed;
+- the complete deterministic backend suite passed 211/211 without a live provider call;
+- the normal frontend production build passed with 138 modules transformed;
+- `git diff --check` passed with no whitespace errors (Git emitted only existing LF/CRLF conversion warnings).
+
+Production acceptance remains pending: deploy this code before enabling AI/RAG/guard together, verify one parse
+and one review consume two shared reservations, confirm quota/busy errors do not change parse state, and confirm
+the blocked model endpoints return `503` without provider traffic or sensitive logs.
+
 ## 17. Deferred after DEPLOY-02
 
 - legacy `.doc`, image uploads, OCR, scanned-PDF text recognition, original-file storage, and Resume download;

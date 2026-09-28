@@ -1,5 +1,7 @@
 package com.hermanli.careerpilot.documents;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,9 +26,11 @@ public class SpringAiDocumentParser implements DocumentParser {
             """;
 
     private final ChatClient chatClient;
+    private final int maxOutputTokens;
 
-    public SpringAiDocumentParser(ChatModel dashscopeChatModel) {
+    public SpringAiDocumentParser(ChatModel dashscopeChatModel, PublicRagGuardProperties guardProperties) {
         this.chatClient = ChatClient.builder(dashscopeChatModel).build();
+        this.maxOutputTokens = guardProperties.getMaxOutputTokens();
     }
 
     @Override
@@ -43,6 +47,7 @@ public class SpringAiDocumentParser implements DocumentParser {
         return chatClient.prompt()
                 .system(instructions)
                 .user("Submitted document follows between delimiters.\n---\n" + rawText + "\n---")
+                .options(DashScopeChatOptions.builder().withMaxToken(maxOutputTokens).build())
                 .call()
                 .content();
     }

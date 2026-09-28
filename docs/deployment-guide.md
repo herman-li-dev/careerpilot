@@ -108,6 +108,14 @@ process-only `DASHSCOPE_API_KEY`. The production Compose file passes these value
 environment and defaults every provider flag off. Do not enable only part of this set: the API deliberately
 returns `503 AI_UNAVAILABLE` until AI, RAG, and the guard are all available.
 
+When Clerk application authentication is enabled, turning on AI and the guard also enables provider-backed
+Resume Parse behind the same user/global daily quota, token budget, and Java concurrency pool as live review.
+Parse verifies ownership before acquiring the guard, and a parse reservation counts toward the same daily limit
+as a review reservation. Job-description parsing, Analysis model work, plan regeneration, and creation of new
+Interview Preparation content remain deliberately blocked with `503 AI_UNAVAILABLE`; do not treat their visible
+UI controls as permission to expose unguarded provider work. Enable a future model workflow only after adding an
+explicit guarded operation and its security acceptance tests.
+
 The inner Nginx uses the host proxy's `X-Real-IP` value for its two-requests-per-minute public-RAG limit. Because
 the container binds only to `127.0.0.1`, the host proxy is the only intended network caller. The BaoTa/host Nginx
 configuration must overwrite rather than append this header:

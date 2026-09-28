@@ -1,6 +1,7 @@
 package com.hermanli.careerpilot.plan;
 
 import com.hermanli.careerpilot.api.ResourceNotFoundException;
+import com.hermanli.careerpilot.ai.AiAvailability;
 import com.hermanli.careerpilot.analysis.AnalysisReportService;
 import com.hermanli.careerpilot.analysis.AnalysisReportView;
 import com.hermanli.careerpilot.documents.JobDescriptionRepository;
@@ -19,17 +20,20 @@ public class PlanService {
     private final AnalysisReportService analysisReportService;
     private final JobDescriptionRepository jobDescriptionRepository;
     private final PlanGenerationService planGenerationService;
+    private final AiAvailability aiAvailability;
 
     public PlanService(
             PlanRepository planRepository,
             AnalysisReportService analysisReportService,
             JobDescriptionRepository jobDescriptionRepository,
-            PlanGenerationService planGenerationService
+            PlanGenerationService planGenerationService,
+            AiAvailability aiAvailability
     ) {
         this.planRepository = planRepository;
         this.analysisReportService = analysisReportService;
         this.jobDescriptionRepository = jobDescriptionRepository;
         this.planGenerationService = planGenerationService;
+        this.aiAvailability = aiAvailability;
     }
 
     public CareerPlan get(long userId, long planId) {
@@ -63,6 +67,7 @@ public class PlanService {
     @Transactional
     public List<PlanTask> regenerateRemaining(long userId, long planId) {
         CareerPlan plan = get(userId, planId);
+        aiAvailability.requireEnabled();
         List<PlanTask> existingTasks = planRepository.findTasksByPlanIdAndUserId(planId, userId);
         boolean emptyPlan = existingTasks.isEmpty();
         if (!emptyPlan && existingTasks.stream().noneMatch(this::isRegenerableTask)) {
