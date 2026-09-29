@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,9 +40,10 @@ public class JobDescriptionController {
     @PostMapping("/{jobDescriptionId}/parse")
     public ApiResponse<JobDescription> parse(
             @PathVariable long jobDescriptionId,
-            @CurrentUserId long userId
+            @CurrentUserId long userId,
+            @RequestAttribute(name = "careerpilotClerkSubject", required = false) String clerkSubject
     ) {
-        return ApiResponse.success(documentParsingService.parseJobDescription(jobDescriptionId, userId));
+        return ApiResponse.success(documentParsingService.parseJobDescription(jobDescriptionId, userId, clerkSubject));
     }
 
     @PostMapping

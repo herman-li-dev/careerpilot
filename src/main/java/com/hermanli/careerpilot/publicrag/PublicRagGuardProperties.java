@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 public class PublicRagGuardProperties {
 
     private boolean enabled;
-    private int dailyUserRequestLimit = 3;
+    private int dailyUserRequestLimit = 6;
     private int dailyGlobalRequestLimit = 100;
     private int maxConcurrentRequests = 2;
     private int maxInputTokens = 6_000;

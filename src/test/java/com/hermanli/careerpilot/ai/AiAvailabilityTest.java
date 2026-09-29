@@ -13,6 +13,8 @@ class AiAvailabilityTest {
 
         assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_PARSE))
                 .doesNotThrowAnyException();
+        assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_JOB_DESCRIPTION_PARSE))
+                .doesNotThrowAnyException();
         assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW))
                 .doesNotThrowAnyException();
         assertThatThrownBy(availability::requireEnabled).isInstanceOf(AiUnavailableException.class);
@@ -23,6 +25,8 @@ class AiAvailabilityTest {
         AiAvailability availability = new AiAvailability(false, true);
 
         assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_PARSE))
+                .isInstanceOf(AiUnavailableException.class);
+        assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_JOB_DESCRIPTION_PARSE))
                 .isInstanceOf(AiUnavailableException.class);
         assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW))
                 .isInstanceOf(AiUnavailableException.class);

@@ -23,7 +23,7 @@ careerpilot:
       enabled: ${CAREERPILOT_PUBLIC_RAG_UPLOAD_ENABLED:false}
     guard:
       enabled: ${CAREERPILOT_PUBLIC_RAG_GUARD_ENABLED:false}
-      daily-user-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_USER_LIMIT:3}
+      daily-user-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_USER_LIMIT:6}
       daily-global-request-limit: ${CAREERPILOT_PUBLIC_RAG_DAILY_GLOBAL_LIMIT:100}
       max-concurrent-requests: ${CAREERPILOT_PUBLIC_RAG_MAX_CONCURRENT_REQUESTS:2}
       max-input-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_INPUT_TOKENS:6000}

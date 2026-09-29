@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 @Service
 public class DocumentParsingService {
@@ -69,8 +70,13 @@ public class DocumentParsingService {
         Resume resume = resumeRepository.findByIdAndUserId(resumeId, userId)
                 .orElseThrow(ResourceNotFoundException::new);
         aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_PARSE);
+        return guarded(clerkSubject, resume.rawText(), () -> parseOwnedResume(resume, userId));
+    }
+
+    // Callers verify ownership first, so unowned requests never reach the guard or consume quota.
+    private <T> T guarded(String clerkSubject, String rawText, Supplier<T> parse) {
         if (!clerkApplicationAuthenticationEnabled) {
-            return parseOwnedResume(resume, userId);
+            return parse.get();
         }
         if (clerkSubject == null || clerkSubject.isBlank()) {
             throw new AuthenticationRequiredException();
@@ -81,10 +87,10 @@ public class DocumentParsingService {
         }
         try (PublicRagGuardService.GuardPermit ignored = guard.acquire(
                 clerkSubject,
-                List.of(resume.rawText()),
+                List.of(rawText),
                 guardProperties.getMaxOutputTokens()
         )) {
-            return parseOwnedResume(resume, userId);
+            return parse.get();
         }
     }
 
@@ -109,9 +115,18 @@ public class DocumentParsingService {
     }
 
     public JobDescription parseJobDescription(long jobDescriptionId, long userId) {
+        return parseJobDescription(jobDescriptionId, userId, null);
+    }
+
+    public JobDescription parseJobDescription(long jobDescriptionId, long userId, String clerkSubject) {
         JobDescription jobDescription = jobDescriptionRepository.findByIdAndUserId(jobDescriptionId, userId)
                 .orElseThrow(ResourceNotFoundException::new);
-        aiAvailability.requireEnabled();
+        aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_JOB_DESCRIPTION_PARSE);
+        return guarded(clerkSubject, jobDescription.rawText(), () -> parseOwnedJobDescription(jobDescription, userId));
+    }
+
+    private JobDescription parseOwnedJobDescription(JobDescription jobDescription, long userId) {
+        long jobDescriptionId = jobDescription.id();
         if (!jobDescriptionRepository.markRunning(jobDescriptionId, userId)) {
             throw new InvalidDocumentStateException();
         }

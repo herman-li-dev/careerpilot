@@ -184,7 +184,7 @@ then returns only the document type and character count. It does not save the or
 text, or Clerk identity and does not call AI or RAG.
 
 `PUBLIC-RAG-GUARD-01` prepares that model-call boundary behind another default-off backend flag. Its defaults are
-three reservations per UTC day per Google user, 100 per UTC day globally, two concurrent model requests, 6000
+six reservations per UTC day per Google user, 100 per UTC day globally, two concurrent model requests, 6000
 conservative UTF-8 input-budget units, 800 requested output tokens, and 6800 total budget units. PostgreSQL stores only daily counters
 and a date-bound HMAC of the verified Clerk subject. Set a separate 32-byte
 `CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET` before enabling the guard; never expose it through Vite. Upload
@@ -196,8 +196,9 @@ application mode. AI, RAG, and guard flags must all be enabled; otherwise the ro
 `PUBLIC-RAG-ACTIVATION-GUARD-01` extends the same mandatory guard to
 `POST /api/resumes/{resumeId}/parse` in Clerk application mode. Ownership is resolved before token checks or
 quota reservation, and each provider-backed parse shares the same per-user/global daily counters and concurrency
-pool as live review. A reservation remains charged after provider work starts, including failed attempts. Other
-model-backed endpoints (job-description parsing, Analysis creation/execution, plan regeneration, and new
+pool as live review. A reservation remains charged after provider work starts, including failed attempts.
+`PUBLIC-MATCH-FLOW-GUARD-01` applies the same guard to `POST /api/job-descriptions/{jobDescriptionId}/parse`.
+Other model-backed endpoints (Analysis creation/execution, plan regeneration, and new
 Interview Preparation generation) remain blocked with `503 AI_UNAVAILABLE` in public application mode until a
 future task gives each workflow an explicit guard and acceptance criteria. Legacy non-Clerk deployments retain
 their existing behavior.

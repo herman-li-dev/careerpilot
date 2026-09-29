@@ -217,9 +217,10 @@ Job-description lists use the same newest-first order as resumes.
 
 ### `POST /api/job-descriptions/{jobDescriptionId}/parse`
 
-Uses the same legacy ownership, retry, result, and state rules as resume parsing. In application-level Clerk mode,
-this model-backed endpoint is intentionally unavailable and returns `503 AI_UNAVAILABLE`; it is not allowed to
-bypass the guarded Resume Parse and live-review boundary.
+Uses the same ownership, retry, result, and state rules as resume parsing. In application-level Clerk mode it
+requires a verified Clerk subject and acquires the shared public RAG model-call guard after ownership is verified
+and before the job description enters `RUNNING`; a guard rejection never reaches the model or changes parse state.
+Without an enabled guard it returns `503 AI_UNAVAILABLE`.
 
 ## 6. Analysis resources
 
@@ -585,12 +586,13 @@ are returned as errors and never enter an unguarded fallback. In Clerk applicati
 ### Public RAG model-call guard
 
 `PUBLIC-RAG-GUARD-01` provides the mandatory Java boundary acquired by
-`POST /api/rag/resume/review` and, in Clerk application mode, `POST /api/resumes/{resumeId}/parse` immediately
-before provider work. Both operations share the following limits and counters; a parse and a review by the same
-user therefore consume two reservations. The guard rejects work before a provider call when any limit would be
+`POST /api/rag/resume/review` and, in Clerk application mode, `POST /api/resumes/{resumeId}/parse` and
+`POST /api/job-descriptions/{jobDescriptionId}/parse` immediately before provider work, after ownership has been
+verified. All of these operations share the following limits and counters; a Resume parse, a job-description parse,
+and a review by the same user therefore consume three reservations. The guard rejects work before a provider call when any limit would be
 exceeded:
 
-- three reservations per verified Clerk subject per UTC day;
+- six reservations per verified Clerk subject per UTC day;
 - 100 reservations globally per UTC day;
 - two concurrent model requests in the single backend process;
 - 6000 conservative UTF-8 input-budget units, 800 requested output tokens, or 6800 total budget units.

@@ -111,8 +111,8 @@ returns `503 AI_UNAVAILABLE` until AI, RAG, and the guard are all available.
 When Clerk application authentication is enabled, turning on AI and the guard also enables provider-backed
 Resume Parse behind the same user/global daily quota, token budget, and Java concurrency pool as live review.
 Parse verifies ownership before acquiring the guard, and a parse reservation counts toward the same daily limit
-as a review reservation. Job-description parsing, Analysis model work, plan regeneration, and creation of new
-Interview Preparation content remain deliberately blocked with `503 AI_UNAVAILABLE`; do not treat their visible
+as a review reservation. Job-description parsing follows the same guarded path. Analysis model work, plan
+regeneration, and creation of new Interview Preparation content remain deliberately blocked with `503 AI_UNAVAILABLE`; do not treat their visible
 UI controls as permission to expose unguarded provider work. Enable a future model workflow only after adding an
 explicit guarded operation and its security acceptance tests.
 

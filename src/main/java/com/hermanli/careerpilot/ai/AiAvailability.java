@@ -41,6 +41,7 @@ public class AiAvailability {
     public enum Operation {
         GENERAL(false),
         GUARDED_RESUME_PARSE(true),
+        GUARDED_JOB_DESCRIPTION_PARSE(true),
         GUARDED_RESUME_REVIEW(true);
 
         private final boolean allowedInPublicApplication;
