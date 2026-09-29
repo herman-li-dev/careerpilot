@@ -31,6 +31,7 @@ import java.util.Set;
 public class AnalysisReportService {
 
     private static final int MAX_INVALID_OUTPUT_ATTEMPTS = 2;
+    private static final int MAX_STRENGTH_LENGTH = 200;
     private static final String GENERATION_FAILED_CODE = "REPORT_GENERATION_FAILED";
     private static final String GENERATION_FAILED_MESSAGE =
             "The report could not be generated. Please try again.";
@@ -185,7 +186,7 @@ public class AnalysisReportService {
                 String resumeJson = resumeRepository
                         .findCompletedParsedJsonByIdAndUserId(report.resumeId(), userId)
                         .orElse("{}");
-                matchReport = deriveNarratives(matchReport, textEvidenceValues(resumeJson));
+                matchReport = deriveNarratives(matchReport, resumeJson);
             } catch (JsonProcessingException exception) {
                 throw new IllegalStateException("A persisted report could not be read.");
             }
@@ -231,8 +232,7 @@ public class AnalysisReportService {
     }
 
     private MatchReport sanitizeEvidence(MatchReport report, String resumeJson, String jobDescriptionJson) {
-        List<String> resumeTextEvidence = textEvidenceValues(resumeJson);
-        Set<String> resumeEvidence = normalizedValues(resumeTextEvidence);
+        Set<String> resumeEvidence = textValues(resumeJson);
         Set<String> jobDescriptionEvidence = textValues(jobDescriptionJson);
         Set<ScoredCapability> matchedClaims = claims(report.matchedSkills());
         List<String> matchedSkills = new ArrayList<>();
@@ -261,13 +261,13 @@ public class AnalysisReportService {
                 List.of(),
                 List.of(),
                 List.of()
-        ), resumeTextEvidence);
+        ), resumeJson);
     }
 
-    private MatchReport deriveNarratives(MatchReport report, List<String> resumeEvidence) {
+    private MatchReport deriveNarratives(MatchReport report, String resumeJson) {
         List<String> supportedCapabilities = new ArrayList<>(report.matchedSkills());
         supportedCapabilities.addAll(report.partialMatches());
-        List<String> strengths = supportingResumeEvidence(supportedCapabilities, resumeEvidence);
+        List<String> strengths = supportingResumeEvidence(supportedCapabilities, resumeJson);
         List<String> risks = new ArrayList<>();
         report.partialMatches().forEach(capability -> risks.add(
                 "Resume evidence only partially supports the job requirement for " + capability + "."
@@ -288,15 +288,40 @@ public class AnalysisReportService {
         );
     }
 
-    private List<String> supportingResumeEvidence(List<String> capabilityLabels, List<String> resumeEvidence) {
+    private List<String> supportingResumeEvidence(List<String> capabilityLabels, String resumeJson) {
+        List<String> experienceEvidence = experienceEvidenceValues(resumeJson);
+        List<String> resumeEvidence = textEvidenceValues(resumeJson);
         Set<String> strengths = new LinkedHashSet<>();
         for (String label : capabilityLabels) {
-            ScoredCapability.fromReportItem(label).flatMap(capability -> resumeEvidence.stream()
-                            .filter(value -> capability.supportedBy(Set.of(ScoredCapability.normalize(value))))
-                            .min(Comparator.comparingInt(String::length)))
+            // Prefer the most informative project or work sentence; fall back to the shortest exact Resume value.
+            ScoredCapability.fromReportItem(label).flatMap(capability -> experienceEvidence.stream()
+                            .filter(value -> isDisplayableSupport(capability, value))
+                            .max(Comparator.comparingInt(String::length))
+                            .or(() -> resumeEvidence.stream()
+                                    .filter(value -> isDisplayableSupport(capability, value))
+                                    .min(Comparator.comparingInt(String::length))))
                     .ifPresent(strengths::add);
         }
         return List.copyOf(strengths);
+    }
+
+    private boolean isDisplayableSupport(ScoredCapability capability, String value) {
+        return value.length() <= MAX_STRENGTH_LENGTH
+                && capability.supportedBy(Set.of(ScoredCapability.normalize(value)));
+    }
+
+    private List<String> experienceEvidenceValues(String resumeJson) {
+        try {
+            JsonNode root = objectMapper.readTree(resumeJson);
+            List<String> values = new ArrayList<>();
+            if (root != null && root.isObject()) {
+                collectTextValues(root.path("projects"), values);
+                collectTextValues(root.path("workExperience"), values);
+            }
+            return List.copyOf(values);
+        } catch (JsonProcessingException exception) {
+            throw new InvalidGeneratedReportException(ValidationFailure.INPUT_EVIDENCE);
+        }
     }
 
     private int calibratedScore(List<String> matchedSkills, List<String> partialMatches, List<String> missingSkills) {

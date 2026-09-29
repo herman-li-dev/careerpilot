@@ -479,6 +479,34 @@ class AnalysisReportServiceTest {
     }
 
     @Test
+    void prefersTheMostInformativeProjectOrWorkSentenceWithinTheLengthLimitAsAStrength() {
+        String overlongSentence = "Built a Java platform " + "with many repeated synthetic details ".repeat(6);
+        when(resumeRepository.findCompletedParsedJsonByIdAndUserId(RESUME_ID, USER_ID)).thenReturn(Optional.of("""
+                {"skills":["Java"],
+                "projects":["Tracker: built a Java REST API.","%s"],
+                "workExperience":[{"role":"Intern","highlights":["Maintained Java services and wrote integration tests for a billing workflow."]}]}
+                """.formatted(overlongSentence)));
+        when(analysisReportRepository.findByIdAndUserId(66L, USER_ID)).thenReturn(Optional.of(
+                new AnalysisReportRepository.StoredAnalysisReport(
+                        66L, RESUME_ID, JOB_DESCRIPTION_ID, AnalysisStatus.COMPLETED, 100,
+                        """
+                        {"matchScore":100,"matchedSkills":["Programming"],"partialMatches":[],"missingSkills":[],"strengths":[],"risks":[],"recommendations":[]}
+                        """,
+                        null,
+                        null, null, Instant.parse("2026-09-28T20:00:00Z"), null,
+                        Instant.parse("2026-09-28T20:00:01Z")
+                )
+        ));
+
+        AnalysisReportView report = service.get(USER_ID, 66L);
+
+        assertFalse(overlongSentence.length() <= 200);
+        assertEquals(java.util.List.of(
+                "Maintained Java services and wrote integration tests for a billing workflow."
+        ), report.report().strengths());
+    }
+
+    @Test
     void providerTimeoutBecomesSafeFailureWithoutRetrying() {
         when(analysisReportRepository.create(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID)).thenReturn(44L);
         reportGenerator.enqueue(new IllegalStateException("timeout details must not persist"));

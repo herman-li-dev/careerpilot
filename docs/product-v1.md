@@ -114,7 +114,9 @@ Rules:
 - Matched capabilities contribute 100%, partial capabilities contribute 50%, and missing capabilities contribute 0%.
 - `partialMatches` contains job capabilities with related but incomplete resume evidence.
 - `strengths` contains exact textual leaves selected from the owned parsed Resume for matched or partial
-  capabilities; model-authored strength prose is discarded.
+  capabilities; model-authored strength prose is discarded. For each capability, the longest supporting
+  `projects` or `workExperience` leaf of at most 200 characters is preferred; otherwise the shortest supporting
+  Resume leaf of at most 200 characters is used. Leaves are never truncated.
 - `risks` and `recommendations` are deterministic server-authored statements derived only from the validated
   partial/missing capability lists. Model-authored narrative values are discarded before persistence.
 - Historical report reads rebuild these three narrative lists from the owned Resume and validated capability
