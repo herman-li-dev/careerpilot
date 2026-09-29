@@ -166,6 +166,39 @@ class PlanGenerationServiceTest {
     }
 
     @Test
+    void keepsAMatchedCapabilityPlannableOnlyWhenTheJobDescriptionRequiresIt() throws Exception {
+        String generatedJson = """
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Cloud verification","description":"Verify actual cloud use.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Cloud Computing","focusArea":"CLOUD_COMPUTING","taskType":"EVIDENCE_VERIFICATION","deliverable":"A yes/no conclusion"}]}
+                """;
+        RecordingPlanGenerator generator = new RecordingPlanGenerator(generatedJson);
+        PlanGenerationService service = new PlanGenerationService(
+                generator, new ObjectMapper(), Validation.buildDefaultValidatorFactory().getValidator()
+        );
+        MatchReport report = new MatchReport(
+                80, List.of("Cloud Computing", "Programming"), List.of(), List.of("Requirements Analysis"),
+                List.of(), List.of(), List.of()
+        );
+        String jobDescriptionJson = """
+                {"companyName":"Example","roleTitle":null,"location":null,"responsibilities":[],
+                "requiredSkills":["Cloud Computing","Requirements Analysis"],"preferredSkills":[],"experienceRequirements":[]}
+                """;
+
+        service.generate(report, jobDescriptionJson);
+
+        com.fasterxml.jackson.databind.JsonNode gaps = new ObjectMapper().readTree(generator.normalizedGapsJson()).path("gaps");
+        List<String> focusAreas = gaps.findValuesAsText("focusArea");
+        assertTrue(focusAreas.contains("CLOUD_COMPUTING"));
+        assertTrue(focusAreas.contains("REQUIREMENTS_ANALYSIS"));
+        assertFalse(focusAreas.contains("PROGRAMMING"));
+        for (com.fasterxml.jackson.databind.JsonNode gap : gaps) {
+            if ("CLOUD_COMPUTING".equals(gap.path("focusArea").asText())) {
+                assertEquals("STRONG", gap.path("evidenceStrength").asText());
+            }
+        }
+    }
+
+    @Test
     void rejectsTaskWithoutAConcreteDeliverable() {
         PlanGenerationService service = serviceFor("""
                 {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
