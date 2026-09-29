@@ -17,6 +17,8 @@ public class PublicRagGuardProperties {
     private int maxInputTokens = 6_000;
     private int maxOutputTokens = 800;
     private int maxTotalTokens = 6_800;
+    private int matchReportMaxOutputTokens = 800;
+    private int planMaxOutputTokens = 1_600;
     private String identityHmacSecret = "";
 
     @PostConstruct
@@ -29,7 +31,9 @@ public class PublicRagGuardProperties {
                 || maxConcurrentRequests <= 0
                 || maxInputTokens <= 0
                 || maxOutputTokens <= 0
-                || maxTotalTokens < maxInputTokens + maxOutputTokens) {
+                || maxTotalTokens < maxInputTokens + maxOutputTokens
+                || matchReportMaxOutputTokens <= 0
+                || planMaxOutputTokens <= 0) {
             throw new IllegalStateException("Invalid public RAG guard limits.");
         }
         if (identityHmacSecret == null
@@ -94,6 +98,22 @@ public class PublicRagGuardProperties {
 
     public void setMaxTotalTokens(int maxTotalTokens) {
         this.maxTotalTokens = maxTotalTokens;
+    }
+
+    public int getMatchReportMaxOutputTokens() {
+        return matchReportMaxOutputTokens;
+    }
+
+    public void setMatchReportMaxOutputTokens(int matchReportMaxOutputTokens) {
+        this.matchReportMaxOutputTokens = matchReportMaxOutputTokens;
+    }
+
+    public int getPlanMaxOutputTokens() {
+        return planMaxOutputTokens;
+    }
+
+    public void setPlanMaxOutputTokens(int planMaxOutputTokens) {
+        this.planMaxOutputTokens = planMaxOutputTokens;
     }
 
     public String getIdentityHmacSecret() {

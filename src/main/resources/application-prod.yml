@@ -29,6 +29,9 @@ careerpilot:
       max-input-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_INPUT_TOKENS:6000}
       max-output-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_OUTPUT_TOKENS:800}
       max-total-tokens: ${CAREERPILOT_PUBLIC_RAG_MAX_TOTAL_TOKENS:6800}
+      # Hard provider output caps for one Match Report or Plan model attempt.
+      match-report-max-output-tokens: ${CAREERPILOT_MATCH_REPORT_MAX_OUTPUT_TOKENS:800}
+      plan-max-output-tokens: ${CAREERPILOT_PLAN_MAX_OUTPUT_TOKENS:1600}
       identity-hmac-secret: ${CAREERPILOT_PUBLIC_RAG_GUARD_HMAC_SECRET:}
   ai:
     enabled: ${CAREERPILOT_AI_ENABLED:false}

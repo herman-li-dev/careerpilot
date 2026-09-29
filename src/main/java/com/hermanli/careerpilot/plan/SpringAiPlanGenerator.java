@@ -1,6 +1,8 @@
 package com.hermanli.careerpilot.plan;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.hermanli.careerpilot.analysis.MatchReport;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -64,8 +66,11 @@ public class SpringAiPlanGenerator implements PlanGenerator {
             """;
 
     private final ChatClient chatClient;
-    public SpringAiPlanGenerator(ChatModel dashscopeChatModel) {
+    private final int maxOutputTokens;
+
+    public SpringAiPlanGenerator(ChatModel dashscopeChatModel, PublicRagGuardProperties guardProperties) {
         this.chatClient = ChatClient.builder(dashscopeChatModel).build();
+        this.maxOutputTokens = guardProperties.getPlanMaxOutputTokens();
     }
 
     @Override
@@ -80,6 +85,7 @@ public class SpringAiPlanGenerator implements PlanGenerator {
                 .system(INSTRUCTIONS)
                 .user("Normalized prioritized gaps JSON:\n---\n" + normalizedGapsJson
                         + "\n---\nPrior task progress JSON:\n---\n" + priorTaskProgressJson + "\n---")
+                .options(DashScopeChatOptions.builder().withMaxToken(maxOutputTokens).build())
                 .call()
                 .content();
     }

@@ -6,19 +6,27 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hermanli.careerpilot.ai.AiAvailability;
+import com.hermanli.careerpilot.ai.AiUnavailableException;
 import com.hermanli.careerpilot.api.ResourceNotFoundException;
 import com.hermanli.careerpilot.documents.JobDescriptionRepository;
 import com.hermanli.careerpilot.documents.ResumeRepository;
+import com.hermanli.careerpilot.identity.AuthenticationRequiredException;
 import com.hermanli.careerpilot.plan.PlanDraft;
 import com.hermanli.careerpilot.plan.PlanGenerationService;
 import com.hermanli.careerpilot.plan.PlanPersistenceService;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -51,6 +59,9 @@ public class AnalysisReportService {
     private final ObjectMapper objectMapper;
     private final Validator validator;
     private final AiAvailability aiAvailability;
+    private final ObjectProvider<PublicRagGuardService> guardProvider;
+    private final PublicRagGuardProperties guardProperties;
+    private final boolean clerkApplicationAuthenticationEnabled;
 
     public AnalysisReportService(
             ResumeRepository resumeRepository,
@@ -61,7 +72,11 @@ public class AnalysisReportService {
             PlanPersistenceService planPersistenceService,
             ObjectMapper objectMapper,
             Validator validator,
-            AiAvailability aiAvailability
+            AiAvailability aiAvailability,
+            ObjectProvider<PublicRagGuardService> guardProvider,
+            PublicRagGuardProperties guardProperties,
+            @Value("${careerpilot.auth.clerk-application-enabled:false}")
+            boolean clerkApplicationAuthenticationEnabled
     ) {
         this.resumeRepository = resumeRepository;
         this.jobDescriptionRepository = jobDescriptionRepository;
@@ -72,6 +87,9 @@ public class AnalysisReportService {
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.aiAvailability = aiAvailability;
+        this.guardProvider = guardProvider;
+        this.guardProperties = guardProperties;
+        this.clerkApplicationAuthenticationEnabled = clerkApplicationAuthenticationEnabled;
     }
 
     public long generate(long userId, long resumeId, long jobDescriptionId) {
@@ -84,21 +102,43 @@ public class AnalysisReportService {
     }
 
     public long createPending(long userId, long resumeId, long jobDescriptionId) {
+        return createPending(userId, resumeId, jobDescriptionId, null);
+    }
+
+    public long createPending(long userId, long resumeId, long jobDescriptionId, String clerkSubject) {
         requireCompletedInputs(userId, resumeId, jobDescriptionId);
-        aiAvailability.requireEnabled();
+        aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_MATCH_REPORT);
+        if (clerkApplicationAuthenticationEnabled) {
+            // Checked synchronously without reserving quota; the reservation happens when the background run starts.
+            requireSubject(clerkSubject);
+            requireGuard();
+        }
         return analysisReportRepository.create(userId, resumeId, jobDescriptionId);
     }
 
     public void runPending(long userId, long analysisId) {
+        runPending(userId, analysisId, null);
+    }
+
+    public void runPending(long userId, long analysisId, String clerkSubject) {
         try {
             AnalysisReportRepository.StoredAnalysisReport analysis = analysisReportRepository
                     .findByIdAndUserId(analysisId, userId)
                     .orElseThrow(ResourceNotFoundException::new);
-            aiAvailability.requireEnabled();
+            aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_MATCH_REPORT);
             if (analysis.status() != AnalysisStatus.PENDING || !analysisReportRepository.markRunning(analysisId, userId)) {
                 return;
             }
-            generateRunning(userId, analysisId, analysis.resumeId(), analysis.jobDescriptionId());
+            if (!clerkApplicationAuthenticationEnabled) {
+                generateRunning(userId, analysisId, analysis.resumeId(), analysis.jobDescriptionId());
+                return;
+            }
+            runGuarded(userId, analysisId, analysis, clerkSubject);
+        } catch (PublicRagGuardRejectedException exception) {
+            // Guard rejections happen before any model call, so they never reach the plan fallback.
+            analysisReportRepository.markFailed(
+                    analysisId, userId, exception.reason().code(), exception.reason().message()
+            );
         } catch (RuntimeException exception) {
             // Background runs have no caller to report to; never leave the analysis PENDING or RUNNING.
             log.warn("Background analysis failed: analysisId={}, failureType={}",
@@ -124,18 +164,71 @@ public class AnalysisReportService {
     }
 
     private void requireCompletedInputs(long userId, long resumeId, long jobDescriptionId) {
-        resumeRepository.findCompletedParsedJsonByIdAndUserId(resumeId, userId)
+        completedResumeJson(userId, resumeId);
+        completedJobDescriptionJson(userId, jobDescriptionId);
+    }
+
+    private void runGuarded(long userId, long analysisId, AnalysisReportRepository.StoredAnalysisReport analysis,
+                            String clerkSubject) {
+        requireSubject(clerkSubject);
+        PublicRagGuardService guard = requireGuard();
+        String resumeJson = completedResumeJson(userId, analysis.resumeId());
+        String jobDescriptionJson = completedJobDescriptionJson(userId, analysis.jobDescriptionId());
+        // One daily reservation covers the whole workflow, budgeted for every report and plan attempt.
+        try (PublicRagGuardService.GuardPermit ignored = guard.acquireWorkflow(
+                clerkSubject, worstCaseModelCalls(resumeJson, jobDescriptionJson)
+        )) {
+            generateFromInputs(userId, analysisId, resumeJson, jobDescriptionJson);
+        }
+    }
+
+    private List<PublicRagGuardService.ModelCallBudget> worstCaseModelCalls(String resumeJson, String jobDescriptionJson) {
+        int reportOutput = guardProperties.getMatchReportMaxOutputTokens();
+        PublicRagGuardService.ModelCallBudget report = new PublicRagGuardService.ModelCallBudget(
+                PublicRagGuardService.estimateInputTokens(List.of(resumeJson, jobDescriptionJson)), reportOutput
+        );
+        // Plan prompts are built from the job requirements and the validated report, which is bounded by one
+        // report output.
+        PublicRagGuardService.ModelCallBudget plan = new PublicRagGuardService.ModelCallBudget(
+                PublicRagGuardService.estimateInputTokens(List.of(jobDescriptionJson)) + reportOutput,
+                guardProperties.getPlanMaxOutputTokens()
+        );
+        List<PublicRagGuardService.ModelCallBudget> calls = new ArrayList<>();
+        calls.addAll(Collections.nCopies(MAX_INVALID_OUTPUT_ATTEMPTS, report));
+        calls.addAll(Collections.nCopies(MAX_INVALID_OUTPUT_ATTEMPTS, plan));
+        return List.copyOf(calls);
+    }
+
+    private void requireSubject(String clerkSubject) {
+        if (clerkSubject == null || clerkSubject.isBlank()) {
+            throw new AuthenticationRequiredException();
+        }
+    }
+
+    private PublicRagGuardService requireGuard() {
+        PublicRagGuardService guard = guardProvider.getIfAvailable();
+        if (guard == null) {
+            throw new AiUnavailableException();
+        }
+        return guard;
+    }
+
+    private String completedResumeJson(long userId, long resumeId) {
+        return resumeRepository.findCompletedParsedJsonByIdAndUserId(resumeId, userId)
                 .orElseThrow(InvalidAnalysisInputException::new);
-        jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(jobDescriptionId, userId)
+    }
+
+    private String completedJobDescriptionJson(long userId, long jobDescriptionId) {
+        return jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(jobDescriptionId, userId)
                 .orElseThrow(InvalidAnalysisInputException::new);
     }
 
     private void generateRunning(long userId, long analysisId, long resumeId, long jobDescriptionId) {
-        String resumeJson = resumeRepository.findCompletedParsedJsonByIdAndUserId(resumeId, userId)
-                .orElseThrow(InvalidAnalysisInputException::new);
-        String jobDescriptionJson = jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(jobDescriptionId, userId)
-                .orElseThrow(InvalidAnalysisInputException::new);
+        generateFromInputs(userId, analysisId, completedResumeJson(userId, resumeId),
+                completedJobDescriptionJson(userId, jobDescriptionId));
+    }
 
+    private void generateFromInputs(long userId, long analysisId, String resumeJson, String jobDescriptionJson) {
         for (int attempt = 0; attempt < MAX_INVALID_OUTPUT_ATTEMPTS; attempt++) {
             try {
                 String generatedJson = reportGenerator.generate(resumeJson, jobDescriptionJson);

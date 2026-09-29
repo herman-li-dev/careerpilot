@@ -63,6 +63,51 @@ class PublicRagGuardServiceTest {
     }
 
     @Test
+    void workflowReservesOneRequestWithTheSummedBudgetOfEveryAttempt() {
+        PublicRagGuardService service = service(properties);
+        List<PublicRagGuardService.ModelCallBudget> calls = List.of(
+                new PublicRagGuardService.ModelCallBudget(3_000, 800),
+                new PublicRagGuardService.ModelCallBudget(3_000, 800),
+                new PublicRagGuardService.ModelCallBudget(2_000, 1_600),
+                new PublicRagGuardService.ModelCallBudget(2_000, 1_600)
+        );
+
+        try (PublicRagGuardService.GuardPermit permit = service.acquireWorkflow(SUBJECT, calls)) {
+            assertThat(permit.estimatedInputTokens()).isEqualTo(10_000);
+            assertThat(permit.reservedOutputTokens()).isEqualTo(4_800);
+        }
+
+        verify(quotaRepository, times(1)).reserve(
+                org.mockito.ArgumentMatchers.eq(LocalDate.of(2026, 9, 20)), anyString(),
+                org.mockito.ArgumentMatchers.eq(10_000), org.mockito.ArgumentMatchers.eq(4_800),
+                org.mockito.ArgumentMatchers.eq(6), org.mockito.ArgumentMatchers.eq(100));
+    }
+
+    @Test
+    void workflowRejectsAnAttemptOverThePerCallInputBudgetBeforeReservation() {
+        PublicRagGuardService service = service(properties);
+
+        assertThatThrownBy(() -> service.acquireWorkflow(SUBJECT, List.of(
+                new PublicRagGuardService.ModelCallBudget(100, 800),
+                new PublicRagGuardService.ModelCallBudget(6_001, 1_600)
+        ))).isInstanceOfSatisfying(PublicRagGuardRejectedException.class,
+                exception -> assertThat(exception.reason())
+                        .isEqualTo(PublicRagGuardRejectedException.Reason.TOKEN_LIMIT));
+        assertThatThrownBy(() -> service.acquireWorkflow(SUBJECT, List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.acquireWorkflow(" ", List.of(
+                new PublicRagGuardService.ModelCallBudget(100, 800)
+        ))).isInstanceOf(IllegalArgumentException.class);
+
+        verify(quotaRepository, never()).reserve(any(), anyString(), anyInt(), anyInt(), anyInt(), anyInt());
+        try (PublicRagGuardService.GuardPermit ignored = service.acquireWorkflow(SUBJECT, List.of(
+                new PublicRagGuardService.ModelCallBudget(100, 800)
+        ))) {
+            assertThat(ignored.reservedOutputTokens()).isEqualTo(800);
+        }
+    }
+
+    @Test
     void rejectsConcurrentWorkWithoutQueueingAndReleasesPermitIdempotently() {
         properties = properties(1);
         PublicRagGuardService service = service(properties);

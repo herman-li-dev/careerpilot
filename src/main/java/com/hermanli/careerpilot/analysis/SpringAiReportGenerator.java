@@ -1,5 +1,7 @@
 package com.hermanli.careerpilot.analysis;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -33,9 +35,11 @@ public class SpringAiReportGenerator implements ReportGenerator {
             """;
 
     private final ChatClient chatClient;
+    private final int maxOutputTokens;
 
-    public SpringAiReportGenerator(ChatModel dashscopeChatModel) {
+    public SpringAiReportGenerator(ChatModel dashscopeChatModel, PublicRagGuardProperties guardProperties) {
         this.chatClient = ChatClient.builder(dashscopeChatModel).build();
+        this.maxOutputTokens = guardProperties.getMatchReportMaxOutputTokens();
     }
 
     @Override
@@ -44,6 +48,7 @@ public class SpringAiReportGenerator implements ReportGenerator {
                 .system(INSTRUCTIONS)
                 .user("Validated resume JSON:\n---\n" + resumeParsedJson
                         + "\n---\nValidated job-description JSON:\n---\n" + jobDescriptionParsedJson + "\n---")
+                .options(DashScopeChatOptions.builder().withMaxToken(maxOutputTokens).build())
                 .call()
                 .content();
     }

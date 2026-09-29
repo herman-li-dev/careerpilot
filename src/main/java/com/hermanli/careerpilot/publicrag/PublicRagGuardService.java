@@ -40,12 +40,42 @@ public class PublicRagGuardService {
     }
 
     public GuardPermit acquire(String clerkSubject, List<String> promptParts, int requestedOutputTokens) {
+        requireSubject(clerkSubject);
+        int estimatedInputTokens = estimateInputTokens(promptParts);
+        validateTokenBudget(estimatedInputTokens, requestedOutputTokens);
+        return reserve(clerkSubject, estimatedInputTokens, requestedOutputTokens);
+    }
+
+    /**
+     * Reserves one daily request for a multi-call workflow. Each worst-case model attempt must fit the per-call
+     * input budget, and the reservation records the summed input and output budget of every attempt.
+     */
+    public GuardPermit acquireWorkflow(String clerkSubject, List<ModelCallBudget> worstCaseCalls) {
+        requireSubject(clerkSubject);
+        if (worstCaseCalls == null || worstCaseCalls.isEmpty()) {
+            throw new IllegalArgumentException("A guarded workflow requires at least one model call.");
+        }
+        long inputTokens = 0;
+        long outputTokens = 0;
+        for (ModelCallBudget call : worstCaseCalls) {
+            if (call.inputTokens() < 0 || call.inputTokens() > properties.getMaxInputTokens()
+                    || call.outputTokens() <= 0) {
+                throw rejected(PublicRagGuardRejectedException.Reason.TOKEN_LIMIT);
+            }
+            inputTokens += call.inputTokens();
+            outputTokens += call.outputTokens();
+        }
+        return reserve(clerkSubject, (int) Math.min(inputTokens, Integer.MAX_VALUE),
+                (int) Math.min(outputTokens, Integer.MAX_VALUE));
+    }
+
+    private void requireSubject(String clerkSubject) {
         if (clerkSubject == null || clerkSubject.isBlank()) {
             throw new IllegalArgumentException("A verified Clerk subject is required.");
         }
-        int estimatedInputTokens = estimateInputTokens(promptParts);
-        validateTokenBudget(estimatedInputTokens, requestedOutputTokens);
+    }
 
+    private GuardPermit reserve(String clerkSubject, int estimatedInputTokens, int requestedOutputTokens) {
         if (!concurrency.tryAcquire()) {
             throw rejected(PublicRagGuardRejectedException.Reason.CONCURRENCY_LIMIT);
         }
@@ -74,7 +104,7 @@ public class PublicRagGuardService {
         }
     }
 
-    static int estimateInputTokens(List<String> promptParts) {
+    public static int estimateInputTokens(List<String> promptParts) {
         if (promptParts == null || promptParts.isEmpty()) {
             return 0;
         }
@@ -135,6 +165,9 @@ public class PublicRagGuardService {
 
     private PublicRagGuardRejectedException rejected(PublicRagGuardRejectedException.Reason reason) {
         return new PublicRagGuardRejectedException(reason);
+    }
+
+    public record ModelCallBudget(int inputTokens, int outputTokens) {
     }
 
     public static final class GuardPermit implements AutoCloseable {

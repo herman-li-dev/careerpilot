@@ -9,11 +9,15 @@ import com.hermanli.careerpilot.plan.PlanDraft;
 import com.hermanli.careerpilot.plan.PlanGenerationService;
 import com.hermanli.careerpilot.plan.PlanPersistenceService;
 import com.hermanli.careerpilot.plan.PlanTaskDraft;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -31,7 +35,9 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AnalysisReportServiceTest {
@@ -82,7 +88,10 @@ class AnalysisReportServiceTest {
                 planPersistenceService,
                 new ObjectMapper(),
                 Validation.buildDefaultValidatorFactory().getValidator(),
-                new AiAvailability(true)
+                new AiAvailability(true),
+                emptyGuardProvider(),
+                new PublicRagGuardProperties(),
+                false
         );
         when(resumeRepository.findCompletedParsedJsonByIdAndUserId(RESUME_ID, USER_ID))
                 .thenReturn(Optional.of(RESUME_JSON));
@@ -119,7 +128,10 @@ class AnalysisReportServiceTest {
                 planPersistenceService,
                 new ObjectMapper(),
                 Validation.buildDefaultValidatorFactory().getValidator(),
-                new AiAvailability(false)
+                new AiAvailability(false),
+                emptyGuardProvider(),
+                new PublicRagGuardProperties(),
+                false
         );
 
         assertThrows(AiUnavailableException.class,
@@ -545,6 +557,126 @@ class AnalysisReportServiceTest {
     }
 
     @Test
+    void publicCreationVerifiesOwnershipBeforeIdentityOrGuard() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        when(resumeRepository.findCompletedParsedJsonByIdAndUserId(RESUME_ID, USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(InvalidAnalysisInputException.class,
+                () -> publicService(guard).createPending(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID, null));
+
+        verifyNoInteractions(guard);
+        verify(analysisReportRepository, never()).create(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void publicCreationRequiresIdentityAndGuardWithoutReservingQuota() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        when(analysisReportRepository.create(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID)).thenReturn(69L);
+
+        assertThrows(com.hermanli.careerpilot.identity.AuthenticationRequiredException.class,
+                () -> publicService(guard).createPending(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID, " "));
+        assertThrows(AiUnavailableException.class,
+                () -> publicService(null).createPending(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID, "subject-a"));
+        verify(analysisReportRepository, never()).create(anyLong(), anyLong(), anyLong());
+
+        assertEquals(69L, publicService(guard).createPending(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID, "subject-a"));
+        verifyNoInteractions(guard);
+    }
+
+    @Test
+    void publicRunReservesOneWorkflowBudgetCoveringEveryReportAndPlanAttempt() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardService.GuardPermit permit = mock(PublicRagGuardService.GuardPermit.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenReturn(permit);
+        storePendingAnalysis(70L);
+        reportGenerator.enqueue("not json");
+        reportGenerator.enqueue(VALID_REPORT_JSON);
+        when(planGenerationService.generate(any(MatchReport.class), anyString()))
+                .thenThrow(new PlanGenerationService.InvalidPlanException());
+        when(planGenerationService.generateSafeFallback(any(MatchReport.class), anyString())).thenReturn(
+                new PlanDraft("14-Day Evidence Verification Plan", "Synthetic fallback", java.util.List.of(
+                        new PlanTaskDraft("Verify Docker evidence", "Synthetic description", 1, "HIGH", "Docker",
+                                "DEVOPS_DELIVERY", "EVIDENCE_VERIFICATION", "A synthetic verification checklist")
+                ))
+        );
+
+        publicService(guard).runPending(USER_ID, 70L, "subject-a");
+
+        assertEquals(2, reportGenerator.calls);
+        verify(planGenerationService, times(2)).generate(any(MatchReport.class), anyString());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.List<PublicRagGuardService.ModelCallBudget>> budget =
+                ArgumentCaptor.forClass(java.util.List.class);
+        verify(guard, times(1)).acquireWorkflow(eq("subject-a"), budget.capture());
+        int reportInput = PublicRagGuardService.estimateInputTokens(java.util.List.of(RESUME_JSON, JOB_DESCRIPTION_JSON));
+        int planInput = PublicRagGuardService.estimateInputTokens(java.util.List.of(JOB_DESCRIPTION_JSON)) + 800;
+        assertEquals(java.util.List.of(
+                new PublicRagGuardService.ModelCallBudget(reportInput, 800),
+                new PublicRagGuardService.ModelCallBudget(reportInput, 800),
+                new PublicRagGuardService.ModelCallBudget(planInput, 1_600),
+                new PublicRagGuardService.ModelCallBudget(planInput, 1_600)
+        ), budget.getValue());
+        InOrder order = inOrder(analysisReportRepository, guard, permit);
+        order.verify(analysisReportRepository).markRunning(70L, USER_ID);
+        order.verify(guard).acquireWorkflow(eq("subject-a"), any());
+        order.verify(analysisReportRepository).markCompleted(eq(70L), eq(USER_ID), any(MatchReport.class), anyString());
+        order.verify(permit).close();
+    }
+
+    @Test
+    void publicGuardRejectionPersistsItsReasonWithoutModelWorkOrFallback() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        storePendingAnalysis(71L);
+        storePendingAnalysis(72L);
+        PublicRagGuardRejectedException userLimit = guardRejection(PublicRagGuardRejectedException.Reason.USER_DAILY_LIMIT);
+        PublicRagGuardRejectedException busy = guardRejection(PublicRagGuardRejectedException.Reason.CONCURRENCY_LIMIT);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenThrow(userLimit).thenThrow(busy);
+
+        AnalysisReportService service = publicService(guard);
+        service.runPending(USER_ID, 71L, "subject-a");
+        service.runPending(USER_ID, 72L, "subject-a");
+
+        verify(analysisReportRepository).markFailed(71L, USER_ID, "PUBLIC_RAG_USER_LIMIT",
+                PublicRagGuardRejectedException.Reason.USER_DAILY_LIMIT.message());
+        verify(analysisReportRepository).markFailed(72L, USER_ID, "PUBLIC_RAG_BUSY",
+                PublicRagGuardRejectedException.Reason.CONCURRENCY_LIMIT.message());
+        assertEquals(0, reportGenerator.calls);
+        verify(planGenerationService, never()).generate(any(MatchReport.class), anyString());
+        verify(planGenerationService, never()).generateSafeFallback(any(MatchReport.class), anyString());
+        verify(planPersistenceService, never()).savePlanAndCompleteAnalysis(
+                anyLong(), anyLong(), any(MatchReport.class), anyString(), any(PlanDraft.class));
+    }
+
+    @Test
+    void publicRunWithoutAVerifiedSubjectFailsBeforeGuardOrModelWork() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        storePendingAnalysis(73L);
+
+        publicService(guard).runPending(USER_ID, 73L, null);
+
+        verifyNoInteractions(guard);
+        assertEquals(0, reportGenerator.calls);
+        verify(analysisReportRepository).markFailed(
+                73L, USER_ID, "REPORT_GENERATION_FAILED", "The report could not be generated. Please try again.");
+    }
+
+    @Test
+    void publicRunReleasesThePermitWhenModelWorkFails() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardService.GuardPermit permit = mock(PublicRagGuardService.GuardPermit.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenReturn(permit);
+        storePendingAnalysis(74L);
+        reportGenerator.enqueue(new IllegalStateException("synthetic provider failure"));
+
+        publicService(guard).runPending(USER_ID, 74L, "subject-a");
+
+        InOrder order = inOrder(analysisReportRepository, permit);
+        order.verify(analysisReportRepository).markFailed(
+                74L, USER_ID, "REPORT_GENERATION_FAILED", "The report could not be generated. Please try again.");
+        order.verify(permit).close();
+    }
+
+    @Test
     void rerunsCreateSeparateHistoricalAnalyses() {
         when(analysisReportRepository.create(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID)).thenReturn(51L, 52L);
         reportGenerator.enqueue(VALID_REPORT_JSON);
@@ -567,6 +699,46 @@ class AnalysisReportServiceTest {
         );
 
         verify(analysisReportRepository, never()).create(anyLong(), anyLong(), anyLong());
+    }
+
+    private AnalysisReportService publicService(PublicRagGuardService guard) {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<PublicRagGuardService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(guard);
+        return new AnalysisReportService(
+                resumeRepository,
+                jobDescriptionRepository,
+                analysisReportRepository,
+                reportGenerator,
+                planGenerationService,
+                planPersistenceService,
+                new ObjectMapper(),
+                Validation.buildDefaultValidatorFactory().getValidator(),
+                new AiAvailability(true, true),
+                provider,
+                new PublicRagGuardProperties(),
+                true
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ObjectProvider<PublicRagGuardService> emptyGuardProvider() {
+        return mock(ObjectProvider.class);
+    }
+
+    private void storePendingAnalysis(long analysisId) {
+        when(analysisReportRepository.findByIdAndUserId(analysisId, USER_ID)).thenReturn(Optional.of(
+                new AnalysisReportRepository.StoredAnalysisReport(
+                        analysisId, RESUME_ID, JOB_DESCRIPTION_ID, AnalysisStatus.PENDING, null, null, null,
+                        null, null, Instant.parse("2026-09-29T20:00:00Z"), null, null
+                )
+        ));
+    }
+
+    private static PublicRagGuardRejectedException guardRejection(PublicRagGuardRejectedException.Reason reason) {
+        PublicRagGuardRejectedException rejection = mock(PublicRagGuardRejectedException.class);
+        when(rejection.reason()).thenReturn(reason);
+        return rejection;
     }
 
     private static class FakeReportGenerator implements ReportGenerator {

@@ -197,9 +197,11 @@ application mode. AI, RAG, and guard flags must all be enabled; otherwise the ro
 `POST /api/resumes/{resumeId}/parse` in Clerk application mode. Ownership is resolved before token checks or
 quota reservation, and each provider-backed parse shares the same per-user/global daily counters and concurrency
 pool as live review. A reservation remains charged after provider work starts, including failed attempts.
-`PUBLIC-MATCH-FLOW-GUARD-01` applies the same guard to `POST /api/job-descriptions/{jobDescriptionId}/parse`.
-Other model-backed endpoints (Analysis creation/execution, plan regeneration, and new
-Interview Preparation generation) remain blocked with `503 AI_UNAVAILABLE` in public application mode until a
+`PUBLIC-MATCH-FLOW-GUARD-01` applies the same guard to `POST /api/job-descriptions/{jobDescriptionId}/parse`
+and to Match Report generation. A Match Report reserves one daily request when its background run starts, never
+at submission, and that reservation budgets the worst case of two report and two plan attempts. Report and plan
+model calls have hard output caps of 800 and 1600 tokens. Plan regeneration and new Interview Preparation
+generation remain blocked with `503 AI_UNAVAILABLE` in public application mode until a
 future task gives each workflow an explicit guard and acceptance criteria. Legacy non-Clerk deployments retain
 their existing behavior.
 

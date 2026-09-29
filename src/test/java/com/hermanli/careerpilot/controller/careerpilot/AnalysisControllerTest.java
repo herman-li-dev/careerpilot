@@ -68,8 +68,8 @@ class AnalysisControllerTest {
     @Test
     void createsPendingAnalysisAndReturnsAcceptedContract() throws Exception {
         when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
-        when(analysisReportService.createPending(7L, 11L, 13L)).thenReturn(41L);
-        doNothing().when(analysisReportService).runPending(7L, 41L);
+        when(analysisReportService.createPending(7L, 11L, 13L, null)).thenReturn(41L);
+        doNothing().when(analysisReportService).runPending(7L, 41L, null);
 
         mockMvc.perform(post("/analyses")
                         .cookie(new jakarta.servlet.http.Cookie(SessionCookieService.COOKIE_NAME, "valid-session"))
@@ -84,13 +84,32 @@ class AnalysisControllerTest {
         ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
         verify(analysisExecutor).execute(task.capture());
         task.getValue().run();
-        verify(analysisReportService).runPending(7L, 41L);
+        verify(analysisReportService).runPending(7L, 41L, null);
+    }
+
+    @Test
+    void passesTheVerifiedClerkSubjectToCreationAndTheBackgroundRun() throws Exception {
+        when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
+        when(analysisReportService.createPending(7L, 11L, 13L, "subject-a")).thenReturn(43L);
+
+        mockMvc.perform(post("/analyses")
+                        .cookie(new jakarta.servlet.http.Cookie(SessionCookieService.COOKIE_NAME, "valid-session"))
+                        .requestAttr("careerpilotClerkSubject", "subject-a")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":11,\"jobDescriptionId\":13}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.analysisId").value(43));
+
+        ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+        verify(analysisExecutor).execute(task.capture());
+        task.getValue().run();
+        verify(analysisReportService).runPending(7L, 43L, "subject-a");
     }
 
     @Test
     void marksAnalysisBusyWhenTheBoundedExecutorRejectsIt() throws Exception {
         when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
-        when(analysisReportService.createPending(7L, 11L, 13L)).thenReturn(42L);
+        when(analysisReportService.createPending(7L, 11L, 13L, null)).thenReturn(42L);
         doThrow(new TaskRejectedException("queue full")).when(analysisExecutor).execute(any(Runnable.class));
 
         mockMvc.perform(post("/analyses")
@@ -101,13 +120,13 @@ class AnalysisControllerTest {
                 .andExpect(jsonPath("$.data.analysisId").value(42));
 
         verify(analysisReportService).rejectPendingAsBusy(7L, 42L);
-        verify(analysisReportService, never()).runPending(anyLong(), anyLong());
+        verify(analysisReportService, never()).runPending(anyLong(), anyLong(), any());
     }
 
     @Test
     void rejectsUnparsedOrUnownedInputsWithoutCreatingAnAnalysis() throws Exception {
         when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
-        when(analysisReportService.createPending(7L, 11L, 13L)).thenThrow(new InvalidAnalysisInputException());
+        when(analysisReportService.createPending(7L, 11L, 13L, null)).thenThrow(new InvalidAnalysisInputException());
 
         mockMvc.perform(post("/analyses")
                         .cookie(new jakarta.servlet.http.Cookie(SessionCookieService.COOKIE_NAME, "valid-session"))
@@ -120,7 +139,7 @@ class AnalysisControllerTest {
     @Test
     void returnsSafeAiUnavailableContract() throws Exception {
         when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
-        when(analysisReportService.createPending(7L, 11L, 13L)).thenThrow(new AiUnavailableException());
+        when(analysisReportService.createPending(7L, 11L, 13L, null)).thenThrow(new AiUnavailableException());
 
         String response = mockMvc.perform(post("/analyses")
                         .cookie(new jakarta.servlet.http.Cookie(SessionCookieService.COOKIE_NAME, "valid-session"))

@@ -16,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,13 +41,17 @@ public class AnalysisController {
     @PostMapping
     public ResponseEntity<ApiResponse<CreateAnalysisResponse>> create(
             @CurrentUserId long userId,
+            @RequestAttribute(name = "careerpilotClerkSubject", required = false) String clerkSubject,
             @Valid @RequestBody CreateAnalysisRequest request
     ) {
-        long analysisId = analysisReportService.createPending(userId, request.resumeId(), request.jobDescriptionId());
+        long analysisId = analysisReportService.createPending(
+                userId, request.resumeId(), request.jobDescriptionId(), clerkSubject
+        );
         try {
-            analysisExecutor.execute(() -> analysisReportService.runPending(userId, analysisId));
+            analysisExecutor.execute(() -> analysisReportService.runPending(userId, analysisId, clerkSubject));
         } catch (TaskRejectedException exception) {
             // The pool is saturated; the event stream reports ANALYSIS_BUSY instead of a stuck PENDING row.
+            // No guard quota has been reserved yet, because the reservation happens when the run starts.
             analysisReportService.rejectPendingAsBusy(userId, analysisId);
         }
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(

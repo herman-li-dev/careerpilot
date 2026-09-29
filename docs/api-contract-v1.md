@@ -228,6 +228,11 @@ Without an enabled guard it returns `503 AI_UNAVAILABLE`.
 
 Creates and starts one analysis using persisted inputs.
 
+In application-level Clerk mode, ownership and completed inputs are checked first, then a verified Clerk subject
+and an enabled public RAG guard are required (`401` or `503 AI_UNAVAILABLE`) before any analysis is created. No
+guard quota is reserved by this request. The background run reserves one daily request after the analysis enters
+`RUNNING`, budgeting two report and two plan attempts, and releases its concurrency permit when the run ends.
+
 ```json
 {
   "resumeId": 21,
@@ -313,6 +318,8 @@ Rules:
 - Analyses run on a small bounded background pool. When it is saturated, `POST /api/analyses` still returns
   `202`, and the stream reports `error` with code `ANALYSIS_BUSY`. An unexpected background failure is persisted
   as `REPORT_GENERATION_FAILED` instead of leaving the analysis `PENDING` or `RUNNING`.
+- In Clerk mode, a guard rejection fails the analysis before any model call or deterministic plan fallback, with
+  code `PUBLIC_RAG_USER_LIMIT`, `PUBLIC_RAG_GLOBAL_LIMIT`, `PUBLIC_RAG_BUSY`, or `PUBLIC_RAG_TOKEN_LIMIT`.
 - On reconnect, the server emits the event that represents the current persisted state: `progress`,
   `report`, or `error`. A completed replay also emits `plan` when available and ends with `done`.
 - `done` appears exactly once per successful connection. SSE disconnect never changes analysis ownership or deletes results.

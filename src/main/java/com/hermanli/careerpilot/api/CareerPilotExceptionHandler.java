@@ -145,14 +145,8 @@ public class CareerPilotExceptionHandler {
         HttpStatus status = exception.reason() == PublicRagGuardRejectedException.Reason.TOKEN_LIMIT
                 ? HttpStatus.BAD_REQUEST
                 : HttpStatus.TOO_MANY_REQUESTS;
-        String code = switch (exception.reason()) {
-            case TOKEN_LIMIT -> "PUBLIC_RAG_TOKEN_LIMIT";
-            case CONCURRENCY_LIMIT -> "PUBLIC_RAG_BUSY";
-            case USER_DAILY_LIMIT -> "PUBLIC_RAG_USER_LIMIT";
-            case GLOBAL_DAILY_LIMIT -> "PUBLIC_RAG_GLOBAL_LIMIT";
-        };
         return ResponseEntity.status(status).body(ApiResponse.error(new ApiError(
-                code,
+                exception.reason().code(),
                 exception.getMessage(),
                 Map.of()
         )));
