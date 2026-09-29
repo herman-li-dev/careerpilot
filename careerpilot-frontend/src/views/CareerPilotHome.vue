@@ -240,7 +240,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ClerkAccountControls from '../components/ClerkAccountControls.vue'
 import DocumentColumn from '../components/DocumentColumn.vue'
@@ -292,6 +292,9 @@ const analysisBusy = ref(false)
 const manageDocuments = ref(false)
 let resumeReviewRequestVersion = 0
 let analysisEventSource = null
+let analysisReconnectTimer = null
+let analysisConnectionVersion = 0
+const ANALYSIS_RECONNECT_DELAY_MS = 2500
 const parsedResumes = computed(() => resumes.value.filter(item => item.parseStatus === 'COMPLETED'))
 const parsedJobDescriptions = computed(() => jobDescriptions.value.filter(item => item.parseStatus === 'COMPLETED'))
 const canCreateAnalysis = computed(() => analysisForm.resumeId && analysisForm.jobDescriptionId)
@@ -311,6 +314,7 @@ const parseMethods = {
 }
 
 onMounted(loadAuthenticatedWorkspace)
+onBeforeUnmount(clearAnalysisConnection)
 
 async function loadAuthenticatedWorkspace() {
   authBusy.value = true
@@ -385,7 +389,7 @@ async function signOut() {
     closeDocument()
     analyses.value = []
     manageDocuments.value = false
-    analysisEventSource?.close()
+    clearAnalysisConnection()
     authMode.value = 'login'
     authForm.password = ''
   }
@@ -462,18 +466,77 @@ async function startAnalysis() {
 }
 
 function connectToAnalysis(analysisId) {
-  analysisEventSource?.close()
+  clearAnalysisConnection()
+  const connectionVersion = analysisConnectionVersion
+  let terminalEventReceived = false
   analysisEventSource = connectAnalysisEvents(analysisId, {
-    progress: () => loadAnalyses(),
+    progress: () => {
+      if (connectionVersion === analysisConnectionVersion) loadAnalyses()
+    },
     report: async () => {
+      if (connectionVersion !== analysisConnectionVersion) return
+      terminalEventReceived = true
+      clearAnalysisReconnectTimer()
       await loadAnalyses()
+      if (connectionVersion !== analysisConnectionVersion) return
       const completed = analyses.value.find(item => item.analysisId === analysisId)
       if (completed?.report) openAnalysis(completed)
     },
-    done: () => { analysisEventSource?.close(); loadAnalyses() },
-    error: event => { workspaceMessage.value = { type: 'error', text: event.message || 'The analysis failed.' }; loadAnalyses() },
-    closed: () => loadAnalyses()
+    done: () => {
+      if (connectionVersion !== analysisConnectionVersion) return
+      terminalEventReceived = true
+      closeAnalysisStream()
+      loadAnalyses()
+    },
+    error: event => {
+      if (connectionVersion !== analysisConnectionVersion) return
+      terminalEventReceived = true
+      closeAnalysisStream()
+      workspaceMessage.value = { type: 'error', text: event.message || 'The analysis failed.' }
+      loadAnalyses()
+    },
+    closed: async () => {
+      if (terminalEventReceived || connectionVersion !== analysisConnectionVersion) return
+      await loadAnalyses()
+      if (terminalEventReceived || connectionVersion !== analysisConnectionVersion) return
+
+      const current = analyses.value.find(item => item.analysisId === analysisId)
+      if (current?.status === 'COMPLETED' && current.report) {
+        terminalEventReceived = true
+        closeAnalysisStream()
+        openAnalysis(current)
+        return
+      }
+      if (current?.status === 'FAILED') {
+        terminalEventReceived = true
+        closeAnalysisStream()
+        workspaceMessage.value = { type: 'error', text: current.errorMessage || 'The analysis failed.' }
+        return
+      }
+
+      analysisReconnectTimer = window.setTimeout(() => {
+        if (connectionVersion === analysisConnectionVersion) connectToAnalysis(analysisId)
+      }, ANALYSIS_RECONNECT_DELAY_MS)
+    }
   })
+}
+
+function clearAnalysisReconnectTimer() {
+  if (analysisReconnectTimer !== null) {
+    window.clearTimeout(analysisReconnectTimer)
+    analysisReconnectTimer = null
+  }
+}
+
+function closeAnalysisStream() {
+  clearAnalysisReconnectTimer()
+  analysisEventSource?.close()
+  analysisEventSource = null
+}
+
+function clearAnalysisConnection() {
+  analysisConnectionVersion += 1
+  closeAnalysisStream()
 }
 
 function openAnalysis(analysis) {
