@@ -71,6 +71,8 @@ class InterviewPreparationServiceTest {
         assertTrue(payload.path("experienceEvidence").isArray());
         assertFalse(context.getValue().contains("\"docker\":"));
         assertFalse(context.getValue().contains("allEvidenceText"));
+        assertFalse(context.getValue().contains("Invented Kubernetes leadership"));
+        assertFalse(context.getValue().contains("Claim five years of Docker"));
     }
 
     @Test
@@ -292,7 +294,8 @@ class InterviewPreparationServiceTest {
 
     private AnalysisReportView analysis() {
         return new AnalysisReportView(41L, 11L, 12L, AnalysisStatus.COMPLETED,
-                new MatchReport(50, List.of(), List.of(), List.of("Docker"), List.of(), List.of(), List.of()),
+                new MatchReport(50, List.of(), List.of(), List.of("Docker"), List.of(),
+                        List.of("Invented Kubernetes leadership"), List.of("Claim five years of Docker")),
                 5L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH);
     }
 

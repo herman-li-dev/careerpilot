@@ -87,8 +87,10 @@ the interface states the 5 MiB limit and the lack of OCR/scanned-PDF support.
 
 ![CareerPilot estimated match report](assets/portfolio/03-match-report.png)
 
-The score is labeled as an estimate and is accompanied by matched, partial, and missing evidence plus risks and
-recommendations. Invalid or semantically unsupported model output is rejected before persistence.
+The score is labeled as an estimate and is accompanied by matched, partial, and missing capabilities. Strengths
+are exact leaves selected from the owned parsed Resume; risks and recommendations are deterministic statements
+derived by the server from validated partial/missing capabilities. Model-authored narrative prose is discarded
+before persistence, and historical reads rebuild the same safe fields.
 
 ### Persisted preparation plan
 
@@ -191,8 +193,9 @@ empty/scanned-PDF outcomes. Only extracted text is saved; there is no original-f
 ### 1:15–2:15 — Generate and validate a match report
 
 Select a completed Resume/JD pair and open the report. Call out the 0–100 “estimated match” label, fixed
-capability categories, partial matches, and evidence-aware risks. Explain that raw model JSON uses duplicate-field
-detection and then schema, semantic, and evidence validation; rejected output never becomes a completed report.
+capability categories, partial matches, exact Resume strengths, and server-derived risks. Explain that raw model
+JSON uses duplicate-field detection and then schema, semantic, and evidence validation; model narrative fields
+are discarded, and only server-derived report prose can be persisted or supplied to downstream workflows.
 
 ### 2:15–3:00 — Turn gaps into persisted work
 

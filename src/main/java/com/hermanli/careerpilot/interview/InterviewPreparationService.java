@@ -207,8 +207,6 @@ public class InterviewPreparationService {
         Map<String, String> gaps = new LinkedHashMap<>();
         add(gaps, report.partialMatches());
         add(gaps, report.missingSkills());
-        add(gaps, report.risks());
-        add(gaps, report.recommendations());
         try {
             JsonNode jobDescription = objectMapper.readTree(jobDescriptionJson);
             if (jobDescription == null || !jobDescription.isObject()) {

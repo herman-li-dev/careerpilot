@@ -22,8 +22,7 @@ public class DeterministicPlanGenerator implements PlanGenerator {
     @Override
     public String generate(MatchReport report, String jobDescriptionParsedJson, String priorTaskProgressJson) {
         String evidence = Stream.of(
-                        report.missingSkills(), report.partialMatches(), report.recommendations(),
-                        report.risks(), report.matchedSkills(), report.strengths()
+                        report.missingSkills(), report.partialMatches(), report.matchedSkills(), report.strengths()
                 )
                 .flatMap(List::stream)
                 .filter(item -> PlanGenerationService.canonicalFocusArea(item) != null)

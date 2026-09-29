@@ -17,9 +17,11 @@ import jakarta.validation.Validator;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -92,12 +94,14 @@ public class AnalysisReportService {
     }
 
     public List<AnalysisReportView> list(long userId) {
-        return analysisReportRepository.findAllByUserId(userId).stream().map(this::toView).toList();
+        return analysisReportRepository.findAllByUserId(userId).stream()
+                .map(report -> toView(report, userId))
+                .toList();
     }
 
     public AnalysisReportView get(long userId, long analysisId) {
         return analysisReportRepository.findByIdAndUserId(analysisId, userId)
-                .map(this::toView)
+                .map(report -> toView(report, userId))
                 .orElseThrow(ResourceNotFoundException::new);
     }
 
@@ -152,7 +156,7 @@ public class AnalysisReportService {
         throw new IllegalStateException("Report generation attempts were unexpectedly exhausted.");
     }
 
-    private AnalysisReportView toView(AnalysisReportRepository.StoredAnalysisReport report) {
+    private AnalysisReportView toView(AnalysisReportRepository.StoredAnalysisReport report, long userId) {
         MatchReport matchReport = null;
         if (report.reportJson() != null) {
             try {
@@ -161,6 +165,10 @@ public class AnalysisReportService {
                     objectNode.putArray("partialMatches");
                 }
                 matchReport = objectMapper.treeToValue(persistedJson, MatchReport.class);
+                String resumeJson = resumeRepository
+                        .findCompletedParsedJsonByIdAndUserId(report.resumeId(), userId)
+                        .orElse("{}");
+                matchReport = deriveNarratives(matchReport, textEvidenceValues(resumeJson));
             } catch (JsonProcessingException exception) {
                 throw new IllegalStateException("A persisted report could not be read.");
             }
@@ -206,7 +214,8 @@ public class AnalysisReportService {
     }
 
     private MatchReport sanitizeEvidence(MatchReport report, String resumeJson, String jobDescriptionJson) {
-        Set<String> resumeEvidence = textValues(resumeJson);
+        List<String> resumeTextEvidence = textEvidenceValues(resumeJson);
+        Set<String> resumeEvidence = normalizedValues(resumeTextEvidence);
         Set<String> jobDescriptionEvidence = textValues(jobDescriptionJson);
         Set<ScoredCapability> matchedClaims = claims(report.matchedSkills());
         List<String> matchedSkills = new ArrayList<>();
@@ -227,15 +236,50 @@ public class AnalysisReportService {
             }
         }
         int calibratedScore = calibratedScore(matchedSkills, partialMatches, missingSkills);
-        return new MatchReport(
+        return deriveNarratives(new MatchReport(
                 calibratedScore,
                 List.copyOf(matchedSkills),
                 List.copyOf(partialMatches),
                 List.copyOf(missingSkills),
-                report.strengths(),
-                report.risks(),
-                report.recommendations()
+                List.of(),
+                List.of(),
+                List.of()
+        ), resumeTextEvidence);
+    }
+
+    private MatchReport deriveNarratives(MatchReport report, List<String> resumeEvidence) {
+        List<String> supportedCapabilities = new ArrayList<>(report.matchedSkills());
+        supportedCapabilities.addAll(report.partialMatches());
+        List<String> strengths = supportingResumeEvidence(supportedCapabilities, resumeEvidence);
+        List<String> risks = new ArrayList<>();
+        report.partialMatches().forEach(capability -> risks.add(
+                "Resume evidence only partially supports the job requirement for " + capability + "."
+        ));
+        report.missingSkills().forEach(capability -> risks.add(
+                "The Resume does not contain evidence for the job requirement for " + capability + "."
+        ));
+        List<String> recommendations = new ArrayList<>();
+        report.partialMatches().forEach(capability -> recommendations.add(
+                "Clarify the existing Resume evidence for " + capability + " without adding unsupported experience."
+        ));
+        report.missingSkills().forEach(capability -> recommendations.add(
+                "Add evidence for " + capability + " only if it truthfully reflects your experience."
+        ));
+        return new MatchReport(
+                report.matchScore(), report.matchedSkills(), report.partialMatches(), report.missingSkills(),
+                List.copyOf(strengths), List.copyOf(risks), List.copyOf(recommendations)
         );
+    }
+
+    private List<String> supportingResumeEvidence(List<String> capabilityLabels, List<String> resumeEvidence) {
+        Set<String> strengths = new LinkedHashSet<>();
+        for (String label : capabilityLabels) {
+            ScoredCapability.fromReportItem(label).flatMap(capability -> resumeEvidence.stream()
+                            .filter(value -> capability.supportedBy(Set.of(ScoredCapability.normalize(value))))
+                            .min(Comparator.comparingInt(String::length)))
+                    .ifPresent(strengths::add);
+        }
+        return List.copyOf(strengths);
     }
 
     private int calibratedScore(List<String> matchedSkills, List<String> partialMatches, List<String> missingSkills) {
@@ -265,22 +309,35 @@ public class AnalysisReportService {
     }
 
     private Set<String> textValues(String json) {
+        return normalizedValues(textEvidenceValues(json));
+    }
+
+    private Set<String> normalizedValues(List<String> values) {
+        Set<String> normalized = new HashSet<>();
+        values.forEach(value -> normalized.add(ScoredCapability.normalize(value)));
+        return normalized;
+    }
+
+    private List<String> textEvidenceValues(String json) {
         try {
             JsonNode root = objectMapper.readTree(json);
             if (root == null || !root.isObject()) {
                 throw new InvalidGeneratedReportException(ValidationFailure.INPUT_EVIDENCE);
             }
-            Set<String> values = new HashSet<>();
+            List<String> values = new ArrayList<>();
             collectTextValues(root, values);
-            return values;
+            return List.copyOf(values);
         } catch (JsonProcessingException exception) {
             throw new InvalidGeneratedReportException(ValidationFailure.INPUT_EVIDENCE);
         }
     }
 
-    private void collectTextValues(JsonNode node, Set<String> values) {
+    private void collectTextValues(JsonNode node, List<String> values) {
         if (node.isTextual()) {
-            values.add(ScoredCapability.normalize(node.asText()));
+            String value = node.asText().trim();
+            if (!value.isBlank()) {
+                values.add(value);
+            }
             return;
         }
         Iterator<JsonNode> children = node.elements();

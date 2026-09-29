@@ -25,8 +25,8 @@ public class SpringAiReportGenerator implements ReportGenerator {
             missingSkills require job evidence and no resume evidence. Map detailed responsibilities to the closest
             fixed label instead of copying the responsibility into a skill array. Do not invent skills, experience,
             education, authorization, outcomes, or evidence. Use empty arrays when no supported item exists.
-            Strengths, risks, and recommendations may be concise natural-language explanations, but must be grounded
-            in the supplied JSON and must not claim unsupported experience.
+            strengths, risks, and recommendations must be empty arrays. The application derives these fields from
+            validated capability classifications and exact Resume evidence; never generate narrative report evidence.
             The response must be one JSON object, for example:
             {"matchScore":0,"matchedSkills":[],"partialMatches":[],"missingSkills":[],"strengths":[],"risks":[],"recommendations":[]}
             Do not wrap the JSON in Markdown or include any other text.

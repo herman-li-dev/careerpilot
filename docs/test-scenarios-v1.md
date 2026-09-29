@@ -56,7 +56,7 @@ Use a fixed synthetic resume/JD pair with known overlapping and missing skills.
 | ID | Scenario | Expected result |
 |---|---|---|
 | `R-001` | Start analysis with two owned, valid inputs | Analysis is persisted as `PENDING` before model execution |
-| `R-002` | Fake model returns a valid report | Status becomes `COMPLETED`; all fixed fields are stored |
+| `R-002` | Fake model returns a valid report | Status becomes `COMPLETED`; validated capabilities and server-derived narrative fields are stored |
 | `R-003` | Model returns score below 0 or above 100 | Invalid output is not silently stored |
 | `R-004` | Model omits a required list | Bounded retry occurs; persistent failure becomes `MODEL_OUTPUT_INVALID` |
 | `R-005` | Model returns malformed JSON twice | Analysis becomes `FAILED`; API remains available |
@@ -65,6 +65,10 @@ Use a fixed synthetic resume/JD pair with known overlapping and missing skills.
 | `R-008` | Retrieve report history | Only the current user's reports are returned in stable order |
 | `R-009` | Re-run the same resume/JD pair | A new historical analysis is created; previous report is unchanged |
 | `R-010` | Restart after an analysis was persisted but before model work completed | Abandoned work becomes safely retryable `FAILED`; it does not remain misleadingly `RUNNING` |
+| `R-011` | Model returns invented strength, risk, or recommendation prose | Model prose is discarded; exact Resume strengths and deterministic risk/recommendation text are persisted |
+| `R-012` | Read a historical report containing old free-form narrative text | Narratives are rebuilt from the owned Resume and validated capability lists before response |
+| `R-013` | Plan model references report risk/recommendation prose as source evidence | Output is rejected; narrative fields cannot become task evidence |
+| `R-014` | Build Interview Preparation context from a completed report | Risk/recommendation prose is absent; only exact Resume/JD evidence and validated gap labels are supplied |
 
 ## 6. Follow-up questions and SSE
 

@@ -1204,6 +1204,36 @@ Production acceptance remains pending: deploy this code before enabling AI/RAG/g
 and one review consume two shared reservations, confirm quota/busy errors do not change parse state, and confirm
 the blocked model endpoints return `503` without provider traffic or sensitive logs.
 
+### `REPORT-EVIDENCE-BOUNDARY-01` — Server-derived report narratives and downstream evidence boundary — Completed
+
+Scope: Close the gap between the product's evidence-grounding promise and the match report's free-form narrative
+fields without changing the public JSON shape, database schema, authentication, quota, or provider boundaries.
+
+Implemented boundaries:
+
+- matched, partial, and missing capability lists remain locally canonicalized against the fixed taxonomy;
+- model-authored `strengths`, `risks`, and `recommendations` are discarded before persistence;
+- strengths are rebuilt from exact textual leaves in the current user's parsed Resume that support validated
+  matched/partial capabilities; risks and recommendations use fixed conditional server templates derived from
+  partial/missing capability labels;
+- historical report reads rebuild all three narrative lists, preventing legacy free text from being returned as
+  trusted evidence;
+- plan generation may use exact Resume strengths but no longer admits report risks or recommendations into its
+  evidence map or deterministic fallback input;
+- Interview Preparation no longer admits report risks or recommendations into model-facing gap evidence;
+- overlapping Resume/JD evidence retains a separate job-requirement marker so removing narrative fields does not
+  erase legitimate plan gaps or exact positive evidence.
+
+Automated coverage verifies hostile model narratives are not persisted, historical free text is replaced on
+read, report narratives cannot become plan evidence, Interview Preparation excludes them, and existing detailed
+Resume evidence still supports evidence-grounded plan tasks.
+
+Verification completed on 2026-09-28:
+
+- focused evidence-boundary suite passed 68/68;
+- complete deterministic backend suite passed 213/213 without a live provider call;
+- `git diff --check` passed with no whitespace errors (Git emitted only LF/CRLF conversion warnings).
+
 ## 17. Deferred after DEPLOY-02
 
 - legacy `.doc`, image uploads, OCR, scanned-PDF text recognition, original-file storage, and Resume download;

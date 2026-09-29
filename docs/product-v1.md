@@ -101,9 +101,9 @@ The application consumes a fixed structure rather than free-form Markdown:
   "matchedSkills": ["Programming"],
   "partialMatches": ["Application and System Integration"],
   "missingSkills": ["DevOps and Software Delivery"],
-  "strengths": ["Built and tested a complete backend project"],
-  "risks": ["Resume does not show deployment experience"],
-  "recommendations": ["Add a concise deployment result to the strongest project entry"]
+  "strengths": ["Built a Spring Boot REST API connected to MySQL"],
+  "risks": ["The Resume does not contain evidence for the job requirement for DevOps and Software Delivery."],
+  "recommendations": ["Add evidence for DevOps and Software Delivery only if it truthfully reflects your experience."]
 }
 ```
 
@@ -113,8 +113,14 @@ Rules:
 - Each job capability is counted once even when the job description repeats it in multiple detailed responsibilities.
 - Matched capabilities contribute 100%, partial capabilities contribute 50%, and missing capabilities contribute 0%.
 - `partialMatches` contains job capabilities with related but incomplete resume evidence.
-- Every list contains concise English statements.
-- Recommendations must refer to evidence found in the submitted resume or job description.
+- `strengths` contains exact textual leaves selected from the owned parsed Resume for matched or partial
+  capabilities; model-authored strength prose is discarded.
+- `risks` and `recommendations` are deterministic server-authored statements derived only from the validated
+  partial/missing capability lists. Model-authored narrative values are discarded before persistence.
+- Historical report reads rebuild these three narrative lists from the owned Resume and validated capability
+  lists so previously stored free text is not exposed as trusted evidence.
+- Preparation-plan and Interview Preparation evidence pools do not treat `risks` or `recommendations` as source
+  evidence. They use validated capability labels, exact Resume evidence, and exact Job Description evidence.
 - Missing information must be identified explicitly; the model must not invent experience, skills, education, authorization, or outcomes.
 
 ### Preparation plan

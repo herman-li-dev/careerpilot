@@ -298,7 +298,7 @@ public class PlanGenerationService {
         Map<String, GapCandidate> candidates = new LinkedHashMap<>();
         allowedEvidence.values().forEach(evidence -> {
             String focusArea = canonicalFocusArea(evidence.value());
-            if (focusArea == null || evidence.kind().supportsExperienceClaim()) {
+            if (focusArea == null || (evidence.kind().supportsExperienceClaim() && !evidence.jobRequirement())) {
                 return;
             }
             if ("PROGRAMMING".equals(focusArea) && isProfessionalExperienceOnlyGap(evidence.value())) {
@@ -494,8 +494,6 @@ public class PlanGenerationService {
         addEvidence(evidence, report.strengths(), EvidenceKind.POSITIVE);
         addEvidence(evidence, report.partialMatches(), EvidenceKind.PARTIAL);
         addEvidence(evidence, report.missingSkills(), EvidenceKind.GAP);
-        addEvidence(evidence, report.risks(), EvidenceKind.GAP);
-        addEvidence(evidence, report.recommendations(), EvidenceKind.RECOMMENDATION);
         try {
             collectTextValues(objectMapper.readTree(jobDescriptionParsedJson), evidence);
         } catch (JsonProcessingException exception) {
@@ -505,13 +503,15 @@ public class PlanGenerationService {
     }
 
     private void addEvidence(Map<String, Evidence> evidence, List<String> values, EvidenceKind kind) {
-        values.forEach(value -> evidence.putIfAbsent(normalize(value), new Evidence(value, kind)));
+        values.forEach(value -> evidence.putIfAbsent(normalize(value), new Evidence(value, kind, false)));
     }
 
     private void collectTextValues(JsonNode node, Map<String, Evidence> evidence) {
         if (node.isTextual()) {
             String value = node.asText();
-            evidence.putIfAbsent(normalize(value), new Evidence(value, EvidenceKind.JOB_DESCRIPTION));
+            evidence.compute(normalize(value), (ignored, existing) -> existing == null
+                    ? new Evidence(value, EvidenceKind.JOB_DESCRIPTION, true)
+                    : existing.asJobRequirement());
             return;
         }
         node.elements().forEachRemaining(child -> collectTextValues(child, evidence));
@@ -561,16 +561,20 @@ public class PlanGenerationService {
     }
 
     private enum EvidenceKind {
-        POSITIVE, PARTIAL, GAP, RECOMMENDATION, JOB_DESCRIPTION;
+        POSITIVE, PARTIAL, GAP, JOB_DESCRIPTION;
 
         private boolean supportsExperienceClaim() {
             return this == POSITIVE || this == PARTIAL;
         }
     }
 
-    private record Evidence(String value, EvidenceKind kind) {
+    private record Evidence(String value, EvidenceKind kind, boolean jobRequirement) {
         private boolean supportsExperienceClaim() {
             return kind.supportsExperienceClaim();
+        }
+
+        private Evidence asJobRequirement() {
+            return jobRequirement ? this : new Evidence(value, kind, true);
         }
     }
 
@@ -582,7 +586,6 @@ public class PlanGenerationService {
         private static int signal(EvidenceKind kind) {
             return switch (kind) {
                 case GAP -> 3;
-                case RECOMMENDATION -> 2;
                 case JOB_DESCRIPTION -> 1;
                 default -> 0;
             };

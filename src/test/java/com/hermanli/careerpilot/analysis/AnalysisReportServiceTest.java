@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.Queue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -253,6 +254,32 @@ class AnalysisReportServiceTest {
     }
 
     @Test
+    void replacesModelNarrativesWithExactResumeEvidenceAndDeterministicGuidance() {
+        when(analysisReportRepository.create(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID)).thenReturn(64L);
+        reportGenerator.enqueue(VALID_REPORT_JSON
+                .replace("[\"Java project\"]", "[\"Invented Kubernetes leadership with a 90% improvement\"]")
+                .replace("[\"Docker requirement\"]", "[\"The candidate will fail every interview\"]")
+                .replace("[\"Add Docker deployment evidence\"]", "[\"Claim five years of Docker experience\"]"));
+
+        service.generate(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID);
+
+        ArgumentCaptor<MatchReport> reportCaptor = ArgumentCaptor.forClass(MatchReport.class);
+        ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
+        verify(analysisReportRepository).markCompleted(eq(64L), eq(USER_ID), reportCaptor.capture(), jsonCaptor.capture());
+        MatchReport report = reportCaptor.getValue();
+        assertEquals(java.util.List.of("Java", "Deployment project"), report.strengths());
+        assertEquals(java.util.List.of(
+                "Resume evidence only partially supports the job requirement for DevOps and Software Delivery."
+        ), report.risks());
+        assertEquals(java.util.List.of(
+                "Clarify the existing Resume evidence for DevOps and Software Delivery without adding unsupported experience."
+        ), report.recommendations());
+        assertFalse(jsonCaptor.getValue().contains("Kubernetes leadership"));
+        assertFalse(jsonCaptor.getValue().contains("fail every interview"));
+        assertFalse(jsonCaptor.getValue().contains("five years"));
+    }
+
+    @Test
     void demotesAJobGroundedButUnsupportedMatchedSkillToMissing() {
         when(analysisReportRepository.create(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID)).thenReturn(55L);
         when(resumeRepository.findCompletedParsedJsonByIdAndUserId(RESUME_ID, USER_ID))
@@ -431,7 +458,7 @@ class AnalysisReportServiceTest {
                 new AnalysisReportRepository.StoredAnalysisReport(
                         54L, RESUME_ID, JOB_DESCRIPTION_ID, AnalysisStatus.COMPLETED, 50,
                         """
-                        {"matchScore":50,"matchedSkills":["Java"],"missingSkills":["Docker"],"strengths":[],"risks":[],"recommendations":[]}
+                        {"matchScore":50,"matchedSkills":["Java"],"missingSkills":["Docker"],"strengths":["Invented Kubernetes leadership"],"risks":["Guaranteed rejection"],"recommendations":["Claim five years of Docker"]}
                         """,
                         null,
                         null, null, Instant.parse("2026-08-31T20:00:00Z"), null,
@@ -442,6 +469,13 @@ class AnalysisReportServiceTest {
         AnalysisReportView historical = service.get(USER_ID, 54L);
 
         assertEquals(java.util.List.of(), historical.report().partialMatches());
+        assertEquals(java.util.List.of("Java"), historical.report().strengths());
+        assertEquals(java.util.List.of(
+                "The Resume does not contain evidence for the job requirement for Docker."
+        ), historical.report().risks());
+        assertEquals(java.util.List.of(
+                "Add evidence for Docker only if it truthfully reflects your experience."
+        ), historical.report().recommendations());
     }
 
     @Test

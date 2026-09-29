@@ -54,6 +54,17 @@ class PlanGenerationServiceTest {
     }
 
     @Test
+    void rejectsReportNarrativesAsTaskEvidence() {
+        PlanGenerationService service = serviceFor("""
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Use narrative advice","description":"Apply the report narrative.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Add cloud evidence","focusArea":"CLOUD_COMPUTING","taskType":"CONCEPT_LEARNING","deliverable":"One page of notes"}]}
+                """);
+
+        assertThrows(PlanGenerationService.InvalidPlanException.class,
+                () -> service.generate(REPORT, JOB_DESCRIPTION_JSON));
+    }
+
+    @Test
     void rejectsTwoTasksForTheSameCanonicalGap() {
         PlanGenerationService service = serviceFor("""
                 {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
