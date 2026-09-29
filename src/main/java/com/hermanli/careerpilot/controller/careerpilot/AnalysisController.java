@@ -6,6 +6,9 @@ import com.hermanli.careerpilot.api.ApiResponse;
 import com.hermanli.careerpilot.identity.CurrentUserId;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
@@ -18,16 +21,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/analyses")
 public class AnalysisController {
 
     private final AnalysisReportService analysisReportService;
+    private final TaskExecutor analysisExecutor;
 
-    public AnalysisController(AnalysisReportService analysisReportService) {
+    public AnalysisController(
+            AnalysisReportService analysisReportService,
+            @Qualifier("applicationTaskExecutor") TaskExecutor analysisExecutor
+    ) {
         this.analysisReportService = analysisReportService;
+        this.analysisExecutor = analysisExecutor;
     }
 
     @PostMapping
@@ -36,7 +43,12 @@ public class AnalysisController {
             @Valid @RequestBody CreateAnalysisRequest request
     ) {
         long analysisId = analysisReportService.createPending(userId, request.resumeId(), request.jobDescriptionId());
-        CompletableFuture.runAsync(() -> analysisReportService.runPending(userId, analysisId));
+        try {
+            analysisExecutor.execute(() -> analysisReportService.runPending(userId, analysisId));
+        } catch (TaskRejectedException exception) {
+            // The pool is saturated; the event stream reports ANALYSIS_BUSY instead of a stuck PENDING row.
+            analysisReportService.rejectPendingAsBusy(userId, analysisId);
+        }
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(
                 new CreateAnalysisResponse(analysisId, "PENDING", "/api/analyses/" + analysisId + "/events")
         ));

@@ -14,6 +14,8 @@ import com.hermanli.careerpilot.plan.PlanGenerationService;
 import com.hermanli.careerpilot.plan.PlanPersistenceService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -35,6 +37,10 @@ public class AnalysisReportService {
     private static final String PLAN_GENERATION_FAILED_CODE = "PLAN_GENERATION_FAILED";
     private static final String PLAN_GENERATION_FAILED_MESSAGE =
             "The preparation plan could not be generated. Please try again.";
+    private static final String BUSY_CODE = "ANALYSIS_BUSY";
+    private static final String BUSY_MESSAGE =
+            "CareerPilot is processing other analyses. Please try again in a few minutes.";
+    private static final Logger log = LoggerFactory.getLogger(AnalysisReportService.class);
     private final ResumeRepository resumeRepository;
     private final JobDescriptionRepository jobDescriptionRepository;
     private final AnalysisReportRepository analysisReportRepository;
@@ -83,14 +89,25 @@ public class AnalysisReportService {
     }
 
     public void runPending(long userId, long analysisId) {
-        AnalysisReportRepository.StoredAnalysisReport analysis = analysisReportRepository
-                .findByIdAndUserId(analysisId, userId)
-                .orElseThrow(ResourceNotFoundException::new);
-        aiAvailability.requireEnabled();
-        if (analysis.status() != AnalysisStatus.PENDING || !analysisReportRepository.markRunning(analysisId, userId)) {
-            return;
+        try {
+            AnalysisReportRepository.StoredAnalysisReport analysis = analysisReportRepository
+                    .findByIdAndUserId(analysisId, userId)
+                    .orElseThrow(ResourceNotFoundException::new);
+            aiAvailability.requireEnabled();
+            if (analysis.status() != AnalysisStatus.PENDING || !analysisReportRepository.markRunning(analysisId, userId)) {
+                return;
+            }
+            generateRunning(userId, analysisId, analysis.resumeId(), analysis.jobDescriptionId());
+        } catch (RuntimeException exception) {
+            // Background runs have no caller to report to; never leave the analysis PENDING or RUNNING.
+            log.warn("Background analysis failed: analysisId={}, failureType={}",
+                    analysisId, exception.getClass().getSimpleName());
+            analysisReportRepository.markFailed(analysisId, userId, GENERATION_FAILED_CODE, GENERATION_FAILED_MESSAGE);
         }
-        generateRunning(userId, analysisId, analysis.resumeId(), analysis.jobDescriptionId());
+    }
+
+    public void rejectPendingAsBusy(long userId, long analysisId) {
+        analysisReportRepository.markFailed(analysisId, userId, BUSY_CODE, BUSY_MESSAGE);
     }
 
     public List<AnalysisReportView> list(long userId) {

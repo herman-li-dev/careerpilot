@@ -17,6 +17,15 @@ spring:
     multipart:
       max-file-size: 5242880B
       max-request-size: 6291456B
+  task:
+    execution:
+      # Background analyses block on model calls; keep them on a small bounded pool instead of the
+      # common pool. When the queue is full, new analyses fail safely as ANALYSIS_BUSY.
+      thread-name-prefix: careerpilot-analysis-
+      pool:
+        core-size: 2
+        max-size: 2
+        queue-capacity: 20
   mvc:
     # Even debug logging must not print multipart fields, Bearer tokens, or document content.
     log-request-details: false

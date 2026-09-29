@@ -14,9 +14,12 @@ import com.hermanli.careerpilot.identity.CurrentUserIdArgumentResolver;
 import com.hermanli.careerpilot.identity.SessionCookieService;
 import com.hermanli.careerpilot.identity.SessionTokenService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -24,7 +27,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.OptionalLong;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -54,6 +62,9 @@ class AnalysisControllerTest {
     @MockitoBean
     private SessionTokenService sessionTokenService;
 
+    @MockitoBean(name = "applicationTaskExecutor")
+    private TaskExecutor analysisExecutor;
+
     @Test
     void createsPendingAnalysisAndReturnsAcceptedContract() throws Exception {
         when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
@@ -69,6 +80,28 @@ class AnalysisControllerTest {
                 .andExpect(jsonPath("$.data.analysisId").value(41))
                 .andExpect(jsonPath("$.data.status").value("PENDING"))
                 .andExpect(jsonPath("$.data.eventsUrl").value("/api/analyses/41/events"));
+
+        ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+        verify(analysisExecutor).execute(task.capture());
+        task.getValue().run();
+        verify(analysisReportService).runPending(7L, 41L);
+    }
+
+    @Test
+    void marksAnalysisBusyWhenTheBoundedExecutorRejectsIt() throws Exception {
+        when(sessionTokenService.decodeUserId("valid-session")).thenReturn(OptionalLong.of(7L));
+        when(analysisReportService.createPending(7L, 11L, 13L)).thenReturn(42L);
+        doThrow(new TaskRejectedException("queue full")).when(analysisExecutor).execute(any(Runnable.class));
+
+        mockMvc.perform(post("/analyses")
+                        .cookie(new jakarta.servlet.http.Cookie(SessionCookieService.COOKIE_NAME, "valid-session"))
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"resumeId\":11,\"jobDescriptionId\":13}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.analysisId").value(42));
+
+        verify(analysisReportService).rejectPendingAsBusy(7L, 42L);
+        verify(analysisReportService, never()).runPending(anyLong(), anyLong());
     }
 
     @Test

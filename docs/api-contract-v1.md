@@ -309,6 +309,9 @@ Rules:
 
 - The server sends `done` once for a successful terminal stream.
 - A failed analysis sends `error` and then closes the stream; persisted status is `FAILED`.
+- Analyses run on a small bounded background pool. When it is saturated, `POST /api/analyses` still returns
+  `202`, and the stream reports `error` with code `ANALYSIS_BUSY`. An unexpected background failure is persisted
+  as `REPORT_GENERATION_FAILED` instead of leaving the analysis `PENDING` or `RUNNING`.
 - On reconnect, the server emits the event that represents the current persisted state: `progress`,
   `report`, or `error`. A completed replay also emits `plan` when available and ends with `done`.
 - `done` appears exactly once per successful connection. SSE disconnect never changes analysis ownership or deletes results.

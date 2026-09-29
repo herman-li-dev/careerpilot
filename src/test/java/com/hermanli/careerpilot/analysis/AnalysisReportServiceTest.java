@@ -495,6 +495,28 @@ class AnalysisReportServiceTest {
     }
 
     @Test
+    void backgroundRunMarksFailedInsteadOfLeavingAnalysisRunningWhenInputsCannotBeRead() {
+        when(analysisReportRepository.findByIdAndUserId(65L, USER_ID)).thenReturn(Optional.of(
+                new AnalysisReportRepository.StoredAnalysisReport(
+                        65L, RESUME_ID, JOB_DESCRIPTION_ID, AnalysisStatus.PENDING, null, null, null,
+                        null, null, Instant.parse("2026-09-28T20:00:00Z"), null, null
+                )
+        ));
+        when(resumeRepository.findCompletedParsedJsonByIdAndUserId(RESUME_ID, USER_ID)).thenReturn(Optional.empty());
+
+        service.runPending(USER_ID, 65L);
+
+        verify(analysisReportRepository).markRunning(65L, USER_ID);
+        verify(analysisReportRepository).markFailed(
+                65L,
+                USER_ID,
+                "REPORT_GENERATION_FAILED",
+                "The report could not be generated. Please try again."
+        );
+        assertEquals(0, reportGenerator.calls);
+    }
+
+    @Test
     void rerunsCreateSeparateHistoricalAnalyses() {
         when(analysisReportRepository.create(USER_ID, RESUME_ID, JOB_DESCRIPTION_ID)).thenReturn(51L, 52L);
         reportGenerator.enqueue(VALID_REPORT_JSON);

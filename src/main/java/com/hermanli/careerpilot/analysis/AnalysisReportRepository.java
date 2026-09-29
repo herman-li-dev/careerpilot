@@ -63,7 +63,7 @@ public class AnalysisReportRepository {
                 """
                 update analysis_report
                 set status = 'FAILED', error_code = ?, error_message = ?, updated_at = current_timestamp
-                where id = ? and user_id = ? and status = 'RUNNING'
+                where id = ? and user_id = ? and status in ('PENDING', 'RUNNING')
                 """,
                 errorCode,
                 errorMessage,
