@@ -224,7 +224,7 @@ The API returns `404` for another user's resource rather than revealing that the
   `COMPLETED`, and `SKIPPED` rows remain current and protected.
 - Protected plus regenerated current tasks must not exceed eight. Current queries never return archived rows.
 - SSE is a delivery channel, not the source of truth. Reconnecting reads the persisted state.
-- An interview session and all 5–8 validated questions are inserted in one transaction. Rejected model
+- An interview session and all 3–8 validated questions are inserted in one transaction. Rejected model
   output creates no session or question row. Session reads require `session.id + session.user_id`.
 - With AI disabled, parse requests stop before `RUNNING`, Analysis creation stops before `PENDING`, and new
   Interview Preparation stops before inserting a session. Existing persisted resources are not rewritten.

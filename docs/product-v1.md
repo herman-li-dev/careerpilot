@@ -40,7 +40,7 @@ V1 does not attempt to support every profession, senior leadership hiring, recru
 6. CareerPilot creates a persisted preparation plan scheduled within the next 14 days.
 7. The user can return later to view the report and plan, update task status or due dates, and regenerate
    the remaining `TODO` tasks.
-8. From one completed Analysis, the user can generate one evidence-grounded set of 5–8 interview questions.
+8. From one completed Analysis, the user can generate one evidence-grounded set of 3–8 interview questions.
 
 The implemented V1 flow does not ask for a target city. The saved job description already provides the
 role context needed by resume/JD matching, and a second city answer does not materially change the current
@@ -147,7 +147,7 @@ Rules:
 
 ### Interview preparation — IP-01
 
-- One completed Analysis can produce one immutable set of 5–8 ordered English questions.
+- One completed Analysis can produce one immutable set of 3–8 ordered English questions.
 - Supported types are technical-gap questions, real project follow-ups, and behavioral-evidence questions.
 - Every question stores the exact source evidence, assessment goal, and preparation tip.
 - Technical-gap questions may ask how the candidate would approach or learn a missing requirement; they do

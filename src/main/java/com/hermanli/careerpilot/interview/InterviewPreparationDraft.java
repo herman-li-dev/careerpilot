@@ -7,6 +7,6 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 
 public record InterviewPreparationDraft(
-        @NotNull @Size(min = 5, max = 8) List<@Valid InterviewQuestionDraft> questions
+        @NotNull @Size(min = 3, max = 8) List<@Valid InterviewQuestionDraft> questions
 ) {
 }

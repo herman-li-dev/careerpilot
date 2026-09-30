@@ -419,7 +419,7 @@ rejections return `429` or `400` with the shared `PUBLIC_RAG_*` codes before any
 Rules:
 
 - the Analysis must belong to the current user, be `COMPLETED`, and retain validated parsed Resume/JD inputs;
-- each session contains 5–8 ordered questions and at most one session exists per Analysis;
+- each session contains 3–8 ordered questions and at most one session exists per Analysis;
 - `TECHNICAL_GAP` may use exact report gap or JD requirement evidence without claiming the candidate has it;
 - `PROJECT_FOLLOW_UP` and `BEHAVIORAL_EVIDENCE` require exact Resume `projects` or `workExperience` evidence;
 - internally, the model selects a server-issued type-scoped evidence ID rather than copying evidence text;

@@ -103,6 +103,25 @@ class InterviewPreparationServiceTest {
     }
 
     @Test
+    void acceptsThreeQuestionsWhenTheyCoverEveryRequiredTypeForSparseEvidence() {
+        Fixture fixture = fixture("""
+                {"questions":[
+                  {"questionType":"TECHNICAL_GAP","questionText":"What would you verify for Docker?","assessmentGoal":"Assess the documented gap.","sourceEvidenceId":"G1","preparationTip":"Review the documented requirement."},
+                  {"questionType":"PROJECT_FOLLOW_UP","questionText":"Tell us about the Java API project.","assessmentGoal":"Assess the real project evidence.","sourceEvidenceId":"E1","preparationTip":"Use only the documented project details."},
+                  {"questionType":"BEHAVIORAL_EVIDENCE","questionText":"What real collaboration example, if any, can you truthfully share from the documented project?","assessmentGoal":"Assess the real collaboration evidence.","sourceEvidenceId":"E2","preparationTip":"Describe only the documented collaboration."}
+                ]}
+                """);
+        when(fixture.repository.create(eq(7L), eq(41L), eq("Interview Preparation"), any())).thenReturn(session(88L));
+
+        assertEquals(true, fixture.service.create(7L, 41L).created());
+
+        ArgumentCaptor<InterviewPreparationDraft> persisted = ArgumentCaptor.forClass(InterviewPreparationDraft.class);
+        verify(fixture.repository).create(eq(7L), eq(41L), eq("Interview Preparation"), persisted.capture());
+        assertEquals(3, persisted.getValue().questions().size());
+        assertTrue(SpringAiInterviewQuestionGenerator.INSTRUCTIONS.contains("three to eight"));
+    }
+
+    @Test
     void returnsExistingSessionWithoutCallingModel() {
         Fixture fixture = fixture(VALID_JSON);
         InterviewSessionView existing = session(77L);
