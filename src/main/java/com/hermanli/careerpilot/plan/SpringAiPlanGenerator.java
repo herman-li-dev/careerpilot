@@ -60,8 +60,8 @@ public class SpringAiPlanGenerator implements PlanGenerator {
             recommendation text. EVIDENCE_VERIFICATION may use gapEvidence when it is checking whether evidence exists.
             sourceEvidence must exactly copy one value from its own normalized gap. Do not
             invent skills, achievements, requirements, evidence, dates, or outcomes. Prior task progress may contain
-            completed, skipped, active, or archived tasks. Never repeat a protected focus area or the title of any prior
-            task. Do not include resume text, job-description text, prompts, or model commentary. The response must be
+            completed, skipped, active, or archived tasks. Never repeat a protected focus area or the title of any
+            completed, skipped, or in-progress task. Do not include resume text, job-description text, prompts, or model commentary. The response must be
             one JSON object with no Markdown or extra keys.
             """;
 

@@ -122,6 +122,19 @@ class InterviewPreparationServiceTest {
     }
 
     @Test
+    void acceptsAWarningAgainstHypotheticalsButRejectsAnAffirmativeScenario() {
+        Fixture warning = fixture(VALID_JSON.replace("Describe only the documented collaboration.",
+                "Describe only the documented collaboration and avoid hypotheticals or invented details."));
+        when(warning.repository.create(eq(7L), eq(41L), eq("Interview Preparation"), any())).thenReturn(session(88L));
+
+        assertEquals(true, warning.service.create(7L, 41L).created());
+
+        Fixture scenario = fixture(VALID_JSON.replace("Describe only the documented collaboration.",
+                "Do not worry, imagine a collaboration you could have had."));
+        assertRejectedTwice(scenario, InterviewOutputRejectionCategory.ANSWER_OR_HYPOTHETICAL_CONTENT);
+    }
+
+    @Test
     void returnsExistingSessionWithoutCallingModel() {
         Fixture fixture = fixture(VALID_JSON);
         InterviewSessionView existing = session(77L);

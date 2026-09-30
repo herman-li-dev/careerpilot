@@ -78,6 +78,29 @@ class PlanGenerationServiceTest {
     }
 
     @Test
+    void regenerationMayReuseTitlesOfReplacedTodoTasksButNotOfProtectedTasks() {
+        PlanGenerationService service = serviceFor("""
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Verify cloud","description":"Verify actual cloud use.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Cloud Computing","focusArea":"CLOUD_COMPUTING","taskType":"EVIDENCE_VERIFICATION","deliverable":"A yes/no conclusion"},
+                {"title":"Learn API concepts","description":"Learn API concepts and document an endpoint.","dayOffset":3,"priority":"MEDIUM","sourceEvidence":"Build APIs","focusArea":"INTEGRATION","taskType":"CONCEPT_LEARNING","deliverable":"One page of API notes with an endpoint example"}]}
+                """);
+        PlanTask replacedTodo = new PlanTask(
+                1L, 1L, "Verify cloud", "Earlier description", "TODO",
+                java.time.LocalDate.of(2026, 9, 1), "HIGH", "Cloud Computing",
+                null, null, java.time.Instant.EPOCH, java.time.Instant.EPOCH
+        );
+        PlanTask completedApiWork = new PlanTask(
+                2L, 1L, "Learn API concepts", "Earlier description", "COMPLETED",
+                java.time.LocalDate.of(2026, 9, 1), "MEDIUM", "Programming",
+                java.time.Instant.EPOCH, null, java.time.Instant.EPOCH, java.time.Instant.EPOCH
+        );
+
+        PlanDraft plan = service.generateRemaining(REPORT, JOB_DESCRIPTION_JSON, List.of(replacedTodo, completedApiWork), 7);
+
+        assertEquals(List.of("Verify cloud"), plan.tasks().stream().map(PlanTaskDraft::title).toList());
+    }
+
+    @Test
     void dropsOnlyTheInvalidTaskAndKeepsTheValidRestOfThePlan() {
         PlanGenerationService service = serviceFor("""
                 {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
@@ -629,7 +652,8 @@ class PlanGenerationServiceTest {
     private PlanGenerationService serviceFor(String generatedJson) {
         return new PlanGenerationService(
                 (report, jobDescriptionParsedJson, priorTaskProgressJson) -> generatedJson,
-                new ObjectMapper(),
+                // Like Spring's ObjectMapper, serialize prior tasks' Instant and LocalDate fields.
+                new ObjectMapper().findAndRegisterModules(),
                 Validation.buildDefaultValidatorFactory().getValidator()
         );
     }

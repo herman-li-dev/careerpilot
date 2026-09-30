@@ -171,7 +171,11 @@ public class PlanGenerationService {
         Set<String> priorTitles = new HashSet<>();
         Set<String> protectedFocusAreas = protectedFocusAreas(priorTasks);
         Map<String, NormalizedGap> gapsByFocusArea = normalizedGaps.byFocusArea();
-        priorTasks.forEach(task -> priorTitles.add(normalize(task.title())));
+        // Only protected work must not be repeated; TODO tasks are the ones being replaced, so reusing their titles
+        // is allowed.
+        priorTasks.stream()
+                .filter(PlanGenerationService::isProtectedTask)
+                .forEach(task -> priorTitles.add(normalize(task.title())));
 
         // Every rule still applies to every task, but one rejected task no longer discards the valid rest of the
         // plan. The plan fails only when no task passes.
@@ -500,10 +504,14 @@ public class PlanGenerationService {
                 "no professional development experience", "no professional work experience");
     }
 
+    private static boolean isProtectedTask(PlanTask task) {
+        return Set.of("COMPLETED", "SKIPPED", "IN_PROGRESS").contains(task.status());
+    }
+
     private Set<String> protectedFocusAreas(List<PlanTask> priorTasks) {
         Set<String> focusAreas = new HashSet<>();
         priorTasks.stream()
-                .filter(task -> Set.of("COMPLETED", "SKIPPED", "IN_PROGRESS").contains(task.status()))
+                .filter(PlanGenerationService::isProtectedTask)
                 .map(task -> task.title() + " " + task.description() + " " + task.sourceEvidence())
                 .map(PlanGenerationService::canonicalFocusArea)
                 .filter(java.util.Objects::nonNull)

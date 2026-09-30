@@ -52,6 +52,12 @@ public class InterviewPreparationService {
     private static final Pattern BEHAVIORAL_CONDITION = Pattern.compile(
             "\\b(?:if any|if applicable|if this occurred|only if supported by your actual experience)\\b"
     );
+    // "avoid hypotheticals" or "no invented answers" warns against unsafe content; it does not introduce it. The
+    // negation must sit in the same clause, so "Do not worry, imagine..." is still rejected.
+    private static final Pattern NEGATED_UNSAFE_LANGUAGE = Pattern.compile(
+            "\\b(?:avoid|avoiding|no|not|never|without)\\b[^.,;:!?]{0,40}?"
+                    + "(?:hypotheticals?|fictional|made-up|made up|imagined|imagine|sample star|answers?)\\b"
+    );
 
     private final AnalysisReportService analysisReportService;
     private final ResumeRepository resumeRepository;
@@ -248,7 +254,8 @@ public class InterviewPreparationService {
 
     private void validateSafeLanguage(InterviewQuestionDraft question, String allEvidenceText) {
         String text = normalize(question.questionText() + " " + question.assessmentGoal() + " " + question.preparationTip());
-        if (containsAny(text, "hypothetical", "fictional", "made-up", "made up", "imagined", "imagine", "sample star", "answer")) {
+        String affirmativeText = NEGATED_UNSAFE_LANGUAGE.matcher(text).replaceAll(" ");
+        if (containsAny(affirmativeText, "hypothetical", "fictional", "made-up", "made up", "imagined", "imagine", "sample star", "answer")) {
             throw reject(InterviewOutputRejectionCategory.ANSWER_OR_HYPOTHETICAL_CONTENT);
         }
         for (String tool : TOOL_TERMS) {
