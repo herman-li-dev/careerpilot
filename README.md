@@ -202,9 +202,11 @@ and to Match Report generation. A Match Report reserves one daily request when i
 at submission, and that reservation budgets the worst case of two report and two plan attempts. Report and plan
 model calls have hard output caps of 800 and 1600 tokens. New Interview Preparation generation is guarded the
 same way: an existing question set is returned without reserving quota, and a new set reserves one daily request
-budgeted for two attempts with a 1500-token output cap. Plan regeneration remains blocked with `503 AI_UNAVAILABLE` in public application mode until a
-future task gives each workflow an explicit guard and acceptance criteria. Legacy non-Clerk deployments retain
-their existing behavior.
+budgeted for two attempts with a 1500-token output cap. Plan regeneration is guarded too: archive-only
+regeneration and plans with no generable gap make no model call and reserve nothing, and a regeneration that
+calls the model reserves one daily request for its single 1600-token attempt. The model call runs outside any
+database transaction; the task replacement then commits in a short transaction. Legacy non-Clerk deployments
+retain their existing behavior.
 
 `PUBLIC-RAG-SECURITY-01` hardens the pre-model boundary. DOCX containers have entry-count, per-entry,
 total-uncompressed-size, and path-safety checks in addition to POI's ZIP-bomb protection. Public RAG responses

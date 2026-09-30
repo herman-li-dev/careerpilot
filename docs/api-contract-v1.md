@@ -363,6 +363,14 @@ plus regenerated current tasks never exceed eight. The regenerated tasks use the
 and job-description JSON; model output remains subject to the same canonical-gap, deliverable, task-type,
 and evidence validation.
 
+The model call runs outside any database transaction. The server snapshots the current `TODO` task IDs first
+and then, in one short transaction, archives exactly those tasks that are still `TODO` and inserts the
+replacements; if any snapshot task changed meanwhile, nothing is archived or inserted and the request fails with
+an invalid-state error. In application-level Clerk mode, ownership is checked first; archive-only regeneration
+and plans with no generable gap never reach the guard. Otherwise a verified Clerk subject (`401`) and an enabled
+public RAG guard (`503 AI_UNAVAILABLE`) are required, and one daily request is reserved for the single model
+attempt. Guard rejections return `429` or `400` with the shared `PUBLIC_RAG_*` codes before any model call.
+
 Plan generation treats 14 days as a scheduling window, not a task count. It creates at most one task per
 canonical gap and supports the internal task types `RESUME_APPLICATION`, `INTERVIEW_STORY`,
 `EVIDENCE_VERIFICATION`, and `CONCEPT_LEARNING`. If initial plan generation fails semantic validation

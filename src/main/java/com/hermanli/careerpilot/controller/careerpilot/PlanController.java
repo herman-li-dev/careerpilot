@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -50,8 +51,9 @@ public class PlanController {
     @PostMapping("/{planId}/regenerate-remaining")
     public ApiResponse<List<PlanTask>> regenerateRemaining(
             @PathVariable long planId,
-            @CurrentUserId long userId
+            @CurrentUserId long userId,
+            @RequestAttribute(name = "careerpilotClerkSubject", required = false) String clerkSubject
     ) {
-        return ApiResponse.success(planService.regenerateRemaining(userId, planId));
+        return ApiResponse.success(planService.regenerateRemaining(userId, planId, clerkSubject));
     }
 }

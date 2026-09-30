@@ -9,6 +9,8 @@ import com.hermanli.careerpilot.api.ResourceNotFoundException;
 import com.hermanli.careerpilot.ai.AiAvailability;
 import com.hermanli.careerpilot.ai.AiUnavailableException;
 import com.hermanli.careerpilot.documents.JobDescriptionRepository;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -39,7 +41,7 @@ class PlanServiceTest {
             new PlanPersistenceService(planRepository, mock(AnalysisReportRepository.class));
     private final PlanService planService = new PlanService(
             planRepository, analysisReportService, jobDescriptionRepository, planGenerationService,
-            planPersistenceService, new AiAvailability(true)
+            planPersistenceService, new AiAvailability(true), emptyGuardProvider(), new PublicRagGuardProperties(), false
     );
 
     @Test
@@ -97,7 +99,7 @@ class PlanServiceTest {
         when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
                 report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{\"requiredSkills\":[\"Cloud\"]}"));
-        when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(existingTasks), eq(7))).thenReturn(replacement);
+        stubGeneration(report, existingTasks, 7, replacement);
         when(planRepository.archiveTodoTasks(2L, 1L, oldTodoTasks.stream().map(PlanTask::id)
                 .collect(java.util.stream.Collectors.toSet()))).thenReturn(14);
 
@@ -126,22 +128,25 @@ class PlanServiceTest {
         when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
                 report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
-        when(planGenerationService.generateRemaining(eq(report), any(String.class), any(), eq(7)))
-                .thenReturn(new PlanDraft("Plan", "Summary", List.of(replacementTask)));
+        PlanGenerationService.PreparedPlan prepared = stubGeneration(report, List.of(todoA, todoB, completedC), 7,
+                new PlanDraft("Plan", "Summary", List.of(replacementTask)));
         when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L, 4L))).thenReturn(2);
 
         assertEquals(refreshed, planService.regenerateRemaining(1L, 2L));
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(planGenerationService, planRepository);
-        order.verify(planGenerationService).generateRemaining(eq(report), any(String.class), any(), eq(7));
+        order.verify(planGenerationService).generatePrepared(prepared);
         order.verify(planRepository).archiveTodoTasks(2L, 1L, java.util.Set.of(3L, 4L));
         order.verify(planRepository).createTask(eq(2L), eq(replacementTask), any(LocalDate.class));
     }
 
     @Test
     void keepsTheModelCallOutsideAnyTransactionAndTheReplacementInsideOne() throws Exception {
-        assertEquals(null, PlanService.class.getMethod("regenerateRemaining", long.class, long.class)
-                .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+        for (java.lang.reflect.Method method : PlanService.class.getMethods()) {
+            if (method.getName().equals("regenerateRemaining")) {
+                assertEquals(null, method.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+            }
+        }
         assertEquals(null, PlanService.class
                 .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
         org.junit.jupiter.api.Assertions.assertNotNull(PlanPersistenceService.class.getMethod(
@@ -174,8 +179,7 @@ class PlanServiceTest {
         when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
                 report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
-        when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(List.of(firstTodo, secondTodo)), eq(8)))
-                .thenReturn(replacement);
+        stubGeneration(report, List.of(firstTodo, secondTodo), 8, replacement);
         when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L, 4L))).thenReturn(1);
 
         assertThrows(InvalidPlanStateException.class, () -> planService.regenerateRemaining(1L, 2L));
@@ -201,8 +205,7 @@ class PlanServiceTest {
         when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
                 report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
-        when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(List.of(todo)), eq(8)))
-                .thenReturn(replacement);
+        stubGeneration(report, List.of(todo), 8, replacement);
         when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L))).thenReturn(1);
 
         assertThrows(InvalidPlanStateException.class, () -> planService.regenerateRemaining(1L, 2L));
@@ -239,7 +242,7 @@ class PlanServiceTest {
         when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
                 report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{\"requiredSkills\":[\"Cloud\"]}"));
-        when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(List.of()), eq(8))).thenReturn(generated);
+        stubGeneration(report, List.of(), 8, generated);
 
         assertEquals(refreshed, planService.regenerateRemaining(1L, 2L));
         verify(planRepository).archiveTodoTasks(2L, 1L, java.util.Set.of());
@@ -255,22 +258,163 @@ class PlanServiceTest {
     }
 
     @Test
-    void publicApplicationBlocksPlanRegenerationAfterOwnershipCheck() {
-        CareerPlan plan = new CareerPlan(2L, 1L, 9L, "Plan", "Summary", (short) 14, "ACTIVE",
-                Instant.EPOCH, Instant.EPOCH);
-        when(planRepository.findPlanByIdAndUserId(2L, 1L)).thenReturn(Optional.of(plan));
-        PlanService publicService = new PlanService(
-                planRepository,
-                analysisReportService,
-                jobDescriptionRepository,
-                planGenerationService,
-                planPersistenceService,
-                new AiAvailability(true, true)
+    void publicRegenerationChecksOwnershipBeforeIdentityOrGuard() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        when(planRepository.findPlanByIdAndUserId(2L, 1L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> publicService(guard).regenerateRemaining(1L, 2L, null));
+
+        verifyNoInteractions(guard, planGenerationService);
+    }
+
+    @Test
+    void publicRegenerationRequiresIdentityAndGuardWithoutReservingQuota() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        stubRegenerablePlan();
+
+        assertThrows(com.hermanli.careerpilot.identity.AuthenticationRequiredException.class,
+                () -> publicService(guard).regenerateRemaining(1L, 2L, " "));
+        assertThrows(AiUnavailableException.class, () -> publicService(null).regenerateRemaining(1L, 2L, "subject-a"));
+
+        verifyNoInteractions(guard, planGenerationService);
+        verify(planRepository, org.mockito.Mockito.never()).archiveTodoTasks(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    void publicArchiveOnlyRegenerationMakesNoModelCallAndReservesNothing() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        List<PlanTask> existingTasks = new ArrayList<>();
+        for (long id = 1L; id <= 8L; id++) {
+            existingTasks.add(task(id, "COMPLETED", Instant.EPOCH, null, LocalDate.now()));
+        }
+        existingTasks.add(task(9L, "TODO", null, null, LocalDate.now()));
+        List<PlanTask> refreshed = existingTasks.subList(0, 8);
+        when(planRepository.findPlanByIdAndUserId(2L, 1L)).thenReturn(Optional.of(plan()));
+        when(planRepository.findTasksByPlanIdAndUserId(2L, 1L)).thenReturn(existingTasks, refreshed);
+        when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(9L))).thenReturn(1);
+
+        assertEquals(refreshed, publicService(guard).regenerateRemaining(1L, 2L, null));
+
+        verifyNoInteractions(guard, planGenerationService);
+    }
+
+    @Test
+    void publicRegenerationWithNoGenerableGapReservesNothing() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        MatchReport report = stubRegenerablePlan();
+        when(planGenerationService.prepareRemaining(eq(report), any(String.class), eq(List.of(todo())), eq(8)))
+                .thenThrow(new PlanGenerationService.InvalidPlanException());
+
+        assertThrows(PlanGenerationService.InvalidPlanException.class,
+                () -> publicService(guard).regenerateRemaining(1L, 2L, "subject-a"));
+
+        verifyNoInteractions(guard);
+        verify(planGenerationService, org.mockito.Mockito.never()).generatePrepared(any());
+    }
+
+    @Test
+    void publicRegenerationReservesOneModelCallAndReleasesItBeforePersisting() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardService.GuardPermit permit = mock(PublicRagGuardService.GuardPermit.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenReturn(permit);
+        MatchReport report = stubRegenerablePlan();
+        PlanTaskDraft replacementTask = new PlanTaskDraft(
+                "Cloud task", "Verify cloud evidence.", 1, "HIGH", "Cloud",
+                "CLOUD_COMPUTING", "EVIDENCE_VERIFICATION", "A yes/no conclusion"
         );
+        PlanGenerationService.PreparedPlan prepared = stubGeneration(report, List.of(todo()), 8,
+                new PlanDraft("Plan", "Summary", List.of(replacementTask)));
+        List<String> promptParts = List.of("{\"gaps\":[]}", "[]");
+        when(prepared.guardInputParts()).thenReturn(promptParts);
+        when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L))).thenReturn(1);
 
-        assertThrows(AiUnavailableException.class, () -> publicService.regenerateRemaining(1L, 2L));
+        publicService(guard).regenerateRemaining(1L, 2L, "subject-a");
 
-        verifyNoInteractions(planGenerationService);
+        verify(guard, times(1)).acquireWorkflow("subject-a", List.of(new PublicRagGuardService.ModelCallBudget(
+                PublicRagGuardService.estimateInputTokens(promptParts), 1_600)));
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(guard, planGenerationService, permit, planRepository);
+        order.verify(guard).acquireWorkflow(eq("subject-a"), any());
+        order.verify(planGenerationService).generatePrepared(prepared);
+        order.verify(permit).close();
+        order.verify(planRepository).archiveTodoTasks(2L, 1L, java.util.Set.of(3L));
+        order.verify(planRepository).createTask(eq(2L), eq(replacementTask), any(LocalDate.class));
+    }
+
+    @Test
+    void publicGuardRejectionLeavesTheModelAndTasksUntouched() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException userLimit =
+                mock(com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenThrow(userLimit);
+        MatchReport report = stubRegenerablePlan();
+        stubGeneration(report, List.of(todo()), 8, new PlanDraft("Plan", "Summary", List.of()));
+
+        assertThrows(com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException.class,
+                () -> publicService(guard).regenerateRemaining(1L, 2L, "subject-a"));
+
+        verify(planGenerationService, org.mockito.Mockito.never()).generatePrepared(any());
+        verify(planRepository, org.mockito.Mockito.never()).archiveTodoTasks(anyLong(), anyLong(), any());
+        verify(planRepository, org.mockito.Mockito.never()).createTask(anyLong(), any(PlanTaskDraft.class), any(LocalDate.class));
+    }
+
+    @Test
+    void publicRegenerationReleasesThePermitWhenTheModelOutputIsRejected() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardService.GuardPermit permit = mock(PublicRagGuardService.GuardPermit.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenReturn(permit);
+        MatchReport report = stubRegenerablePlan();
+        PlanGenerationService.PreparedPlan prepared = mock(PlanGenerationService.PreparedPlan.class);
+        when(planGenerationService.prepareRemaining(eq(report), any(String.class), eq(List.of(todo())), eq(8)))
+                .thenReturn(prepared);
+        when(planGenerationService.generatePrepared(prepared)).thenThrow(new PlanGenerationService.InvalidPlanException());
+
+        assertThrows(PlanGenerationService.InvalidPlanException.class,
+                () -> publicService(guard).regenerateRemaining(1L, 2L, "subject-a"));
+
+        verify(permit).close();
+        verify(planRepository, org.mockito.Mockito.never()).archiveTodoTasks(anyLong(), anyLong(), any());
+    }
+
+    private PlanService publicService(PublicRagGuardService guard) {
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<PublicRagGuardService> provider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(guard);
+        return new PlanService(planRepository, analysisReportService, jobDescriptionRepository, planGenerationService,
+                planPersistenceService, new AiAvailability(true, true), provider, new PublicRagGuardProperties(), true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static org.springframework.beans.factory.ObjectProvider<PublicRagGuardService> emptyGuardProvider() {
+        return mock(org.springframework.beans.factory.ObjectProvider.class);
+    }
+
+    private PlanGenerationService.PreparedPlan stubGeneration(MatchReport report, List<PlanTask> priorTasks,
+                                                              int taskLimit, PlanDraft draft) {
+        PlanGenerationService.PreparedPlan prepared = mock(PlanGenerationService.PreparedPlan.class);
+        when(planGenerationService.prepareRemaining(eq(report), any(String.class), eq(priorTasks), eq(taskLimit)))
+                .thenReturn(prepared);
+        when(planGenerationService.generatePrepared(prepared)).thenReturn(draft);
+        return prepared;
+    }
+
+    private MatchReport stubRegenerablePlan() {
+        MatchReport report = new MatchReport(50, List.of(), List.of(), List.of("Cloud"), List.of(), List.of(), List.of());
+        when(planRepository.findPlanByIdAndUserId(2L, 1L)).thenReturn(Optional.of(plan()));
+        when(planRepository.findTasksByPlanIdAndUserId(2L, 1L)).thenReturn(List.of(todo()),
+                List.of(task(6L, "TODO", null, null, LocalDate.of(2026, 9, 2))));
+        when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
+                report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
+        when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
+        return report;
+    }
+
+    private CareerPlan plan() {
+        return new CareerPlan(2L, 1L, 9L, "Plan", "Summary", (short) 14, "ACTIVE", Instant.EPOCH, Instant.EPOCH);
+    }
+
+    private PlanTask todo() {
+        return task(3L, "TODO", null, null, LocalDate.of(2026, 9, 2));
     }
 
     private PlanTask task(long id, String status, Instant completedAt, Instant archivedAt, LocalDate dueDate) {

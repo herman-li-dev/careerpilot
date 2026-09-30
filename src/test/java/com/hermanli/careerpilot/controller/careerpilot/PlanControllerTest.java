@@ -123,7 +123,7 @@ class PlanControllerTest {
     @Test
     void regeneratesOnlyTheOwnedPlansRemainingTasks() throws Exception {
         authenticate();
-        when(planService.regenerateRemaining(7L, 12L)).thenReturn(List.of(
+        when(planService.regenerateRemaining(7L, 12L, null)).thenReturn(List.of(
                 task("COMPLETED", Instant.parse("2026-09-01T12:00:00Z")),
                 new PlanTask(4L, 12L, "New task", "New description", "TODO", LocalDate.of(2026, 9, 5),
                         "HIGH", "Docker", null, null, Instant.parse("2026-09-01T00:00:00Z"), Instant.parse("2026-09-01T00:00:00Z"))
@@ -132,6 +132,18 @@ class PlanControllerTest {
         mockMvc.perform(post("/plans/12/regenerate-remaining").cookie(sessionCookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[1].title").value("New task"));
+    }
+
+    @Test
+    void passesTheVerifiedClerkSubjectToGuardedRegeneration() throws Exception {
+        authenticate();
+        when(planService.regenerateRemaining(7L, 12L, "subject-a")).thenReturn(List.of());
+
+        mockMvc.perform(post("/plans/12/regenerate-remaining").cookie(sessionCookie())
+                        .requestAttr("careerpilotClerkSubject", "subject-a"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(planService).regenerateRemaining(7L, 12L, "subject-a");
     }
 
     private void authenticate() {

@@ -44,6 +44,7 @@ public class AiAvailability {
         GUARDED_JOB_DESCRIPTION_PARSE(true),
         GUARDED_MATCH_REPORT(true),
         GUARDED_INTERVIEW_PREPARATION(true),
+        GUARDED_PLAN_REGENERATION(true),
         GUARDED_RESUME_REVIEW(true);
 
         private final boolean allowedInPublicApplication;

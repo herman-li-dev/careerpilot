@@ -113,10 +113,10 @@ Resume Parse behind the same user/global daily quota, token budget, and Java con
 Parse verifies ownership before acquiring the guard, and a parse reservation counts toward the same daily limit
 as a review reservation. Job-description parsing and Match Report generation follow the same guarded path; one
 Match Report consumes one reservation when its background run starts, and generating a new Interview
-Preparation set consumes one reservation (reloading an existing set consumes none). Plan
-regeneration remains deliberately blocked with `503 AI_UNAVAILABLE`; do not treat their visible
-UI controls as permission to expose unguarded provider work. Enable a future model workflow only after adding an
-explicit guarded operation and its security acceptance tests.
+Preparation set consumes one reservation (reloading an existing set consumes none). Plan regeneration
+consumes one reservation only when it calls the model. Every model-backed workflow in public application mode is
+now guarded; enable any future model workflow only after adding an explicit guarded operation and its security
+acceptance tests.
 
 The inner Nginx uses the host proxy's `X-Real-IP` value for its two-requests-per-minute public-RAG limit. Because
 the container binds only to `127.0.0.1`, the host proxy is the only intended network caller. The BaoTa/host Nginx

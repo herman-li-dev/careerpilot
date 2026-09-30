@@ -42,8 +42,17 @@ public class PlanGenerationService {
 
     public PlanDraft generateRemaining(MatchReport report, String jobDescriptionParsedJson, List<PlanTask> priorTasks,
                                        int maximumTasks) {
+        return generatePrepared(prepareRemaining(report, jobDescriptionParsedJson, priorTasks, maximumTasks));
+    }
+
+    /**
+     * Computes the normalized gap request without calling the model, so callers can reserve guarded model budget
+     * only when a model call will actually happen.
+     */
+    PreparedPlan prepareRemaining(MatchReport report, String jobDescriptionParsedJson, List<PlanTask> priorTasks,
+                                  int maximumTasks) {
         try {
-            return generate(report, jobDescriptionParsedJson, objectMapper.writeValueAsString(priorTasks), priorTasks,
+            return prepare(report, jobDescriptionParsedJson, objectMapper.writeValueAsString(priorTasks), priorTasks,
                     maximumTasks);
         } catch (JsonProcessingException exception) {
             throw new InvalidPlanException();
@@ -97,6 +106,12 @@ public class PlanGenerationService {
 
     private PlanDraft generate(MatchReport report, String jobDescriptionParsedJson, String priorTaskProgressJson,
                                List<PlanTask> priorTasks, int maximumTasks) {
+        return generatePrepared(prepare(report, jobDescriptionParsedJson, priorTaskProgressJson, priorTasks,
+                maximumTasks));
+    }
+
+    private PreparedPlan prepare(MatchReport report, String jobDescriptionParsedJson, String priorTaskProgressJson,
+                                 List<PlanTask> priorTasks, int maximumTasks) {
         try {
             if (maximumTasks < 1 || maximumTasks > MAXIMUM_ACTIVE_TASKS) {
                 throw new InvalidPlanException();
@@ -106,17 +121,34 @@ public class PlanGenerationService {
             if (normalizedGaps.gaps().isEmpty()) {
                 throw new InvalidPlanException();
             }
+            return new PreparedPlan(report, jobDescriptionParsedJson, priorTaskProgressJson, priorTasks,
+                    maximumTasks, allowedEvidence, normalizedGaps, objectMapper.writeValueAsString(normalizedGaps));
+        } catch (JsonProcessingException exception) {
+            LOGGER.warn("Preparation plan output rejected: INVALID_JSON");
+            throw new InvalidPlanException();
+        } catch (InvalidPlanException exception) {
+            LOGGER.warn("Preparation plan output rejected: SEMANTIC_VALIDATION");
+            throw exception;
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Preparation plan output rejected: GENERATOR_OR_VALIDATION_RUNTIME");
+            throw new InvalidPlanException();
+        }
+    }
+
+    PlanDraft generatePrepared(PreparedPlan prepared) {
+        try {
             String generatedPlan = planGenerator.generate(
-                    report, jobDescriptionParsedJson, priorTaskProgressJson,
-                    objectMapper.writeValueAsString(normalizedGaps)
+                    prepared.report(), prepared.jobDescriptionParsedJson(), prepared.priorTaskProgressJson(),
+                    prepared.normalizedGapsJson()
             );
             PlanDraft draft = objectMapper.readerFor(PlanDraft.class)
                     .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                     .readValue(removeCodeFence(generatedPlan));
-            if (!validator.validate(draft).isEmpty() || draft.tasks().size() > maximumTasks) {
+            if (!validator.validate(draft).isEmpty() || draft.tasks().size() > prepared.maximumTasks()) {
                 throw new InvalidPlanException();
             }
-            return validateAndCanonicalize(draft, allowedEvidence, priorTasks, normalizedGaps);
+            return validateAndCanonicalize(draft, prepared.allowedEvidence(), prepared.priorTasks(),
+                    prepared.normalizedGaps());
         } catch (JsonProcessingException exception) {
             LOGGER.warn("Preparation plan output rejected: INVALID_JSON");
             throw new InvalidPlanException();
@@ -601,6 +633,16 @@ public class PlanGenerationService {
                                  List<String> allowedTaskTypes, List<String> positiveEvidence) {
         private boolean containsEvidence(String value) {
             return gapEvidence.equals(value) || positiveEvidence.contains(value);
+        }
+    }
+
+    record PreparedPlan(MatchReport report, String jobDescriptionParsedJson, String priorTaskProgressJson,
+                        List<PlanTask> priorTasks, int maximumTasks, Map<String, Evidence> allowedEvidence,
+                        NormalizedGapRequest normalizedGaps, String normalizedGapsJson) {
+
+        /** The user-supplied prompt content the plan model receives, for guarded input budgeting. */
+        List<String> guardInputParts() {
+            return List.of(normalizedGapsJson, priorTaskProgressJson);
         }
     }
 
