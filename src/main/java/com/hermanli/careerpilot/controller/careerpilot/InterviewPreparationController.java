@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -22,9 +23,12 @@ public class InterviewPreparationController {
 
     @PostMapping("/analyses/{analysisId}/interview-prep")
     public ResponseEntity<ApiResponse<InterviewSessionView>> create(
-            @PathVariable long analysisId, @CurrentUserId long userId
+            @PathVariable long analysisId,
+            @CurrentUserId long userId,
+            @RequestAttribute(name = "careerpilotClerkSubject", required = false) String clerkSubject
     ) {
-        InterviewPreparationService.CreationResult result = interviewPreparationService.create(userId, analysisId);
+        InterviewPreparationService.CreationResult result =
+                interviewPreparationService.create(userId, analysisId, clerkSubject);
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .body(ApiResponse.success(result.session()));
     }

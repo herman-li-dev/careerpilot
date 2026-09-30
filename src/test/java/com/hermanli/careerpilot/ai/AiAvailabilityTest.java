@@ -17,6 +17,8 @@ class AiAvailabilityTest {
                 .doesNotThrowAnyException();
         assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_MATCH_REPORT))
                 .doesNotThrowAnyException();
+        assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_INTERVIEW_PREPARATION))
+                .doesNotThrowAnyException();
         assertThatCode(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW))
                 .doesNotThrowAnyException();
         assertThatThrownBy(availability::requireEnabled).isInstanceOf(AiUnavailableException.class);
@@ -31,6 +33,8 @@ class AiAvailabilityTest {
         assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_JOB_DESCRIPTION_PARSE))
                 .isInstanceOf(AiUnavailableException.class);
         assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_MATCH_REPORT))
+                .isInstanceOf(AiUnavailableException.class);
+        assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_INTERVIEW_PREPARATION))
                 .isInstanceOf(AiUnavailableException.class);
         assertThatThrownBy(() -> availability.requireEnabled(AiAvailability.Operation.GUARDED_RESUME_REVIEW))
                 .isInstanceOf(AiUnavailableException.class);

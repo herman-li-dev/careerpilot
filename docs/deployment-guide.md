@@ -112,8 +112,9 @@ When Clerk application authentication is enabled, turning on AI and the guard al
 Resume Parse behind the same user/global daily quota, token budget, and Java concurrency pool as live review.
 Parse verifies ownership before acquiring the guard, and a parse reservation counts toward the same daily limit
 as a review reservation. Job-description parsing and Match Report generation follow the same guarded path; one
-Match Report consumes one reservation when its background run starts. Plan
-regeneration and creation of new Interview Preparation content remain deliberately blocked with `503 AI_UNAVAILABLE`; do not treat their visible
+Match Report consumes one reservation when its background run starts, and generating a new Interview
+Preparation set consumes one reservation (reloading an existing set consumes none). Plan
+regeneration remains deliberately blocked with `503 AI_UNAVAILABLE`; do not treat their visible
 UI controls as permission to expose unguarded provider work. Enable a future model workflow only after adding an
 explicit guarded operation and its security acceptance tests.
 

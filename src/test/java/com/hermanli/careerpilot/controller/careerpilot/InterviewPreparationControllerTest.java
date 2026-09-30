@@ -49,7 +49,7 @@ class InterviewPreparationControllerTest {
     @Test
     void createsThenReturnsTheOwnedInterviewSession() throws Exception {
         authenticate();
-        when(service.create(7L, 41L)).thenReturn(new InterviewPreparationService.CreationResult(session(), true));
+        when(service.create(7L, 41L, null)).thenReturn(new InterviewPreparationService.CreationResult(session(), true));
         when(service.get(7L, 88L)).thenReturn(session());
 
         mockMvc.perform(post("/analyses/41/interview-prep").cookie(cookie()))
@@ -64,7 +64,7 @@ class InterviewPreparationControllerTest {
     @Test
     void returnsOkWhenTheAnalysisAlreadyHasASession() throws Exception {
         authenticate();
-        when(service.create(7L, 41L)).thenReturn(new InterviewPreparationService.CreationResult(session(), false));
+        when(service.create(7L, 41L, null)).thenReturn(new InterviewPreparationService.CreationResult(session(), false));
 
         mockMvc.perform(post("/analyses/41/interview-prep").cookie(cookie()))
                 .andExpect(status().isOk())
@@ -72,12 +72,34 @@ class InterviewPreparationControllerTest {
     }
 
     @Test
+    void passesTheVerifiedClerkSubjectAndReportsGuardRejections() throws Exception {
+        authenticate();
+        when(service.create(7L, 41L, "subject-a"))
+                .thenReturn(new InterviewPreparationService.CreationResult(session(), true));
+        com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException userLimit =
+                org.mockito.Mockito.mock(com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException.class);
+        when(userLimit.reason())
+                .thenReturn(com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException.Reason.USER_DAILY_LIMIT);
+        when(service.create(7L, 45L, "subject-a")).thenThrow(userLimit);
+
+        mockMvc.perform(post("/analyses/41/interview-prep").cookie(cookie())
+                        .requestAttr("careerpilotClerkSubject", "subject-a"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/analyses/45/interview-prep").cookie(cookie())
+                        .requestAttr("careerpilotClerkSubject", "subject-a"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("PUBLIC_RAG_USER_LIMIT"));
+
+        org.mockito.Mockito.verify(service).create(7L, 41L, "subject-a");
+    }
+
+    @Test
     void returnsSafeErrorsAndHidesOtherUsersResources() throws Exception {
         authenticate();
         when(service.get(7L, 99L)).thenThrow(new ResourceNotFoundException());
-        when(service.create(7L, 42L)).thenThrow(new InvalidInterviewPreparationStateException());
-        when(service.create(7L, 43L)).thenThrow(new InvalidInterviewQuestionException());
-        when(service.create(7L, 44L)).thenThrow(new InterviewModelUnavailableException());
+        when(service.create(7L, 42L, null)).thenThrow(new InvalidInterviewPreparationStateException());
+        when(service.create(7L, 43L, null)).thenThrow(new InvalidInterviewQuestionException());
+        when(service.create(7L, 44L, null)).thenThrow(new InterviewModelUnavailableException());
 
         mockMvc.perform(get("/interview-sessions/99").cookie(cookie()))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));

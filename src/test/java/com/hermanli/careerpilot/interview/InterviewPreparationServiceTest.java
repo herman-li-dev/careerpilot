@@ -9,6 +9,10 @@ import com.hermanli.careerpilot.analysis.AnalysisStatus;
 import com.hermanli.careerpilot.analysis.MatchReport;
 import com.hermanli.careerpilot.documents.JobDescriptionRepository;
 import com.hermanli.careerpilot.documents.ResumeRepository;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardRejectedException;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
+import org.springframework.beans.factory.ObjectProvider;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -30,7 +34,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class InterviewPreparationServiceTest {
@@ -212,6 +219,88 @@ class InterviewPreparationServiceTest {
     }
 
     @Test
+    void publicModeReturnsAnExistingSessionWithoutIdentityOrGuardWork() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        Fixture fixture = publicFixture(VALID_JSON, guard);
+        InterviewSessionView existing = session(77L);
+        when(fixture.repository.findByAnalysisReportIdAndUserId(41L, 7L)).thenReturn(Optional.of(existing));
+
+        InterviewPreparationService.CreationResult result = fixture.service.create(7L, 41L, null);
+
+        assertEquals(existing, result.session());
+        verifyNoInteractions(guard);
+        verify(fixture.generator, never()).generate(any());
+    }
+
+    @Test
+    void publicModeRequiresIdentityAndGuardBeforeModelWork() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        Fixture guarded = publicFixture(VALID_JSON, guard);
+        Fixture unguarded = publicFixture(VALID_JSON, null);
+
+        assertThrows(com.hermanli.careerpilot.identity.AuthenticationRequiredException.class,
+                () -> guarded.service.create(7L, 41L, " "));
+        assertThrows(AiUnavailableException.class, () -> unguarded.service.create(7L, 41L, "subject-a"));
+
+        verifyNoInteractions(guard);
+        verify(guarded.generator, never()).generate(any());
+        verify(unguarded.generator, never()).generate(any());
+    }
+
+    @Test
+    void publicGenerationReservesOneBudgetForBothAttemptsAndReleasesThePermit() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardService.GuardPermit permit = mock(PublicRagGuardService.GuardPermit.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenReturn(permit);
+        Fixture fixture = publicFixture("{\"questions\":[]}", guard);
+
+        assertThrows(InvalidInterviewQuestionException.class, () -> fixture.service.create(7L, 41L, "subject-a"));
+
+        verify(fixture.generator, times(2)).generate(any());
+        ArgumentCaptor<String> context = ArgumentCaptor.forClass(String.class);
+        verify(fixture.generator, times(2)).generate(context.capture());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<PublicRagGuardService.ModelCallBudget>> budget = ArgumentCaptor.forClass(List.class);
+        verify(guard, times(1)).acquireWorkflow(eq("subject-a"), budget.capture());
+        PublicRagGuardService.ModelCallBudget attempt = new PublicRagGuardService.ModelCallBudget(
+                PublicRagGuardService.estimateInputTokens(List.of(context.getValue())), 1_500);
+        assertEquals(List.of(attempt, attempt), budget.getValue());
+        verify(permit).close();
+        verify(fixture.repository, never()).create(any(Long.class), any(Long.class), any(String.class), any());
+    }
+
+    @Test
+    void publicGenerationPersistsAfterTheGuardedModelCall() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardService.GuardPermit permit = mock(PublicRagGuardService.GuardPermit.class);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenReturn(permit);
+        Fixture fixture = publicFixture(VALID_JSON, guard);
+        when(fixture.repository.create(eq(7L), eq(41L), eq("Interview Preparation"), any())).thenReturn(session(88L));
+
+        assertEquals(true, fixture.service.create(7L, 41L, "subject-a").created());
+
+        org.mockito.InOrder order = inOrder(guard, fixture.generator, permit, fixture.repository);
+        order.verify(guard).acquireWorkflow(eq("subject-a"), any());
+        order.verify(fixture.generator).generate(any());
+        order.verify(permit).close();
+        order.verify(fixture.repository).create(eq(7L), eq(41L), eq("Interview Preparation"), any());
+    }
+
+    @Test
+    void publicGuardRejectionStopsBeforeModelWorkOrPersistence() {
+        PublicRagGuardService guard = mock(PublicRagGuardService.class);
+        PublicRagGuardRejectedException userLimit = mock(PublicRagGuardRejectedException.class);
+        when(userLimit.reason()).thenReturn(PublicRagGuardRejectedException.Reason.USER_DAILY_LIMIT);
+        when(guard.acquireWorkflow(eq("subject-a"), any())).thenThrow(userLimit);
+        Fixture fixture = publicFixture(VALID_JSON, guard);
+
+        assertThrows(PublicRagGuardRejectedException.class, () -> fixture.service.create(7L, 41L, "subject-a"));
+
+        verify(fixture.generator, never()).generate(any());
+        verify(fixture.repository, never()).create(any(Long.class), any(Long.class), any(String.class), any());
+    }
+
+    @Test
     void rejectsOfflineGenerationBeforeCallingModelOrPersistingSession() {
         Fixture fixture = fixture(VALID_JSON, false);
 
@@ -236,6 +325,17 @@ class InterviewPreparationServiceTest {
     }
 
     private Fixture fixture(String response, boolean aiEnabled) {
+        return fixture(response, aiEnabled, false, null);
+    }
+
+    private Fixture publicFixture(String response, PublicRagGuardService guard) {
+        return fixture(response, true, true, guard);
+    }
+
+    private Fixture fixture(String response, boolean aiEnabled, boolean clerkEnabled, PublicRagGuardService guard) {
+        @SuppressWarnings("unchecked")
+        ObjectProvider<PublicRagGuardService> guardProvider = mock(ObjectProvider.class);
+        when(guardProvider.getIfAvailable()).thenReturn(guard);
         AnalysisReportService analysis = mock(AnalysisReportService.class);
         ResumeRepository resumes = mock(ResumeRepository.class);
         JobDescriptionRepository jobs = mock(JobDescriptionRepository.class);
@@ -252,7 +352,8 @@ class InterviewPreparationServiceTest {
         ));
         when(generator.generate(any())).thenReturn(response);
         return new Fixture(new InterviewPreparationService(analysis, resumes, jobs, repository, generator,
-                new ObjectMapper(), validator, new AiAvailability(aiEnabled)), repository, generator, resumes);
+                new ObjectMapper(), validator, new AiAvailability(aiEnabled, clerkEnabled), guardProvider,
+                new PublicRagGuardProperties(), clerkEnabled), repository, generator, resumes);
     }
 
     private void assertRejectedTwice(Fixture fixture, InterviewOutputRejectionCategory category) {

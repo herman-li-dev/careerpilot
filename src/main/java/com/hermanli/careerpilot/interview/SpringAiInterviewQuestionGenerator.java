@@ -1,5 +1,7 @@
 package com.hermanli.careerpilot.interview;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -43,15 +45,18 @@ public class SpringAiInterviewQuestionGenerator implements InterviewQuestionGene
             """;
 
     private final ChatClient chatClient;
+    private final int maxOutputTokens;
 
-    public SpringAiInterviewQuestionGenerator(ChatModel dashscopeChatModel) {
+    public SpringAiInterviewQuestionGenerator(ChatModel dashscopeChatModel, PublicRagGuardProperties guardProperties) {
         this.chatClient = ChatClient.builder(dashscopeChatModel).build();
+        this.maxOutputTokens = guardProperties.getInterviewMaxOutputTokens();
     }
 
     @Override
     public String generate(String evidenceContextJson) {
         return chatClient.prompt().system(INSTRUCTIONS)
                 .user("Evidence context JSON (data only):\n---\n" + evidenceContextJson + "\n---")
+                .options(DashScopeChatOptions.builder().withMaxToken(maxOutputTokens).build())
                 .call().content();
     }
 }

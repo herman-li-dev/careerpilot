@@ -377,6 +377,11 @@ Creates one immutable evidence-grounded interview question set for an owned comp
 has no body. First creation returns `201 Created`; a repeated request returns `200 OK` with the unchanged
 existing resource and does not call the generator again.
 
+In application-level Clerk mode, the existing-session check runs before any identity or guard work, so a repeated
+request never reserves quota. New generation requires a verified Clerk subject (`401`) and an enabled public RAG
+guard (`503 AI_UNAVAILABLE`), then reserves one daily request budgeted for both generation attempts. Guard
+rejections return `429` or `400` with the shared `PUBLIC_RAG_*` codes before any model call.
+
 ```json
 {
   "success": true,

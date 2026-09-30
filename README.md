@@ -200,8 +200,9 @@ pool as live review. A reservation remains charged after provider work starts, i
 `PUBLIC-MATCH-FLOW-GUARD-01` applies the same guard to `POST /api/job-descriptions/{jobDescriptionId}/parse`
 and to Match Report generation. A Match Report reserves one daily request when its background run starts, never
 at submission, and that reservation budgets the worst case of two report and two plan attempts. Report and plan
-model calls have hard output caps of 800 and 1600 tokens. Plan regeneration and new Interview Preparation
-generation remain blocked with `503 AI_UNAVAILABLE` in public application mode until a
+model calls have hard output caps of 800 and 1600 tokens. New Interview Preparation generation is guarded the
+same way: an existing question set is returned without reserving quota, and a new set reserves one daily request
+budgeted for two attempts with a 1500-token output cap. Plan regeneration remains blocked with `503 AI_UNAVAILABLE` in public application mode until a
 future task gives each workflow an explicit guard and acceptance criteria. Legacy non-Clerk deployments retain
 their existing behavior.
 

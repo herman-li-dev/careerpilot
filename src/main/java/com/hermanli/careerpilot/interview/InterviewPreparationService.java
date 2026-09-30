@@ -13,12 +13,19 @@ import com.hermanli.careerpilot.ai.AiAvailability;
 import com.hermanli.careerpilot.api.ResourceNotFoundException;
 import com.hermanli.careerpilot.documents.JobDescriptionRepository;
 import com.hermanli.careerpilot.documents.ResumeRepository;
+import com.hermanli.careerpilot.ai.AiUnavailableException;
+import com.hermanli.careerpilot.identity.AuthenticationRequiredException;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
+import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
 import jakarta.validation.Validator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.ArrayList;
@@ -53,6 +60,9 @@ public class InterviewPreparationService {
     private final ObjectMapper objectMapper;
     private final Validator validator;
     private final AiAvailability aiAvailability;
+    private final ObjectProvider<PublicRagGuardService> guardProvider;
+    private final PublicRagGuardProperties guardProperties;
+    private final boolean clerkApplicationAuthenticationEnabled;
 
     public InterviewPreparationService(
             AnalysisReportService analysisReportService,
@@ -62,7 +72,11 @@ public class InterviewPreparationService {
             InterviewQuestionGenerator generator,
             ObjectMapper objectMapper,
             Validator validator,
-            AiAvailability aiAvailability
+            AiAvailability aiAvailability,
+            ObjectProvider<PublicRagGuardService> guardProvider,
+            PublicRagGuardProperties guardProperties,
+            @Value("${careerpilot.auth.clerk-application-enabled:false}")
+            boolean clerkApplicationAuthenticationEnabled
     ) {
         this.analysisReportService = analysisReportService;
         this.resumeRepository = resumeRepository;
@@ -72,9 +86,16 @@ public class InterviewPreparationService {
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.aiAvailability = aiAvailability;
+        this.guardProvider = guardProvider;
+        this.guardProperties = guardProperties;
+        this.clerkApplicationAuthenticationEnabled = clerkApplicationAuthenticationEnabled;
     }
 
     public CreationResult create(long userId, long analysisId) {
+        return create(userId, analysisId, null);
+    }
+
+    public CreationResult create(long userId, long analysisId, String clerkSubject) {
         AnalysisReportView analysis = analysisReportService.get(userId, analysisId);
         if (analysis.status() != AnalysisStatus.COMPLETED || analysis.report() == null) {
             throw new InvalidInterviewPreparationStateException();
@@ -83,14 +104,31 @@ public class InterviewPreparationService {
         if (existing != null) {
             return new CreationResult(existing, false);
         }
-        aiAvailability.requireEnabled();
+        aiAvailability.requireEnabled(AiAvailability.Operation.GUARDED_INTERVIEW_PREPARATION);
+        // An existing session was returned above without model work, so only new generation reaches the guard.
+        PublicRagGuardService guard = clerkApplicationAuthenticationEnabled ? requireGuard(clerkSubject) : null;
         String resumeJson = resumeRepository.findCompletedParsedJsonByIdAndUserId(analysis.resumeId(), userId)
                 .orElseThrow(InvalidInterviewPreparationStateException::new);
         String jobDescriptionJson = jobDescriptionRepository
                 .findCompletedParsedJsonByIdAndUserId(analysis.jobDescriptionId(), userId)
                 .orElseThrow(InvalidInterviewPreparationStateException::new);
         EvidenceContext evidence = evidence(analysis.report(), resumeJson, jobDescriptionJson);
-        InterviewPreparationDraft draft = generate(evidence);
+        String evidenceContextJson = modelContextJson(evidence);
+        InterviewPreparationDraft draft;
+        if (guard == null) {
+            draft = generate(evidence, evidenceContextJson);
+        } else {
+            // One daily reservation covers both bounded generation attempts.
+            PublicRagGuardService.ModelCallBudget attempt = new PublicRagGuardService.ModelCallBudget(
+                    PublicRagGuardService.estimateInputTokens(List.of(evidenceContextJson)),
+                    guardProperties.getInterviewMaxOutputTokens()
+            );
+            try (PublicRagGuardService.GuardPermit ignored = guard.acquireWorkflow(
+                    clerkSubject, Collections.nCopies(MAX_ATTEMPTS, attempt)
+            )) {
+                draft = generate(evidence, evidenceContextJson);
+            }
+        }
         try {
             return new CreationResult(repository.create(userId, analysisId, "Interview Preparation", draft), true);
         } catch (DataIntegrityViolationException exception) {
@@ -103,10 +141,29 @@ public class InterviewPreparationService {
         return repository.findByIdAndUserId(sessionId, userId).orElseThrow(ResourceNotFoundException::new);
     }
 
-    private InterviewPreparationDraft generate(EvidenceContext evidence) {
+    private PublicRagGuardService requireGuard(String clerkSubject) {
+        if (clerkSubject == null || clerkSubject.isBlank()) {
+            throw new AuthenticationRequiredException();
+        }
+        PublicRagGuardService guard = guardProvider.getIfAvailable();
+        if (guard == null) {
+            throw new AiUnavailableException();
+        }
+        return guard;
+    }
+
+    private String modelContextJson(EvidenceContext evidence) {
+        try {
+            return objectMapper.writeValueAsString(evidence.modelContext());
+        } catch (JsonProcessingException exception) {
+            throw new InvalidInterviewPreparationStateException();
+        }
+    }
+
+    private InterviewPreparationDraft generate(EvidenceContext evidence, String evidenceContextJson) {
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             try {
-                String generated = generator.generate(objectMapper.writeValueAsString(evidence.modelContext()));
+                String generated = generator.generate(evidenceContextJson);
                 GeneratedInterviewPreparationDraft generatedDraft = objectMapper.readerFor(GeneratedInterviewPreparationDraft.class)
                         .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                         .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)

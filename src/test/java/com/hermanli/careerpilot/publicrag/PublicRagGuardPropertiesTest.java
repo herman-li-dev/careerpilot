@@ -43,6 +43,13 @@ class PublicRagGuardPropertiesTest {
         assertThatThrownBy(missingPlanCap::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Invalid public RAG guard limits.");
+
+        PublicRagGuardProperties missingInterviewCap = enabledProperties();
+        missingInterviewCap.setInterviewMaxOutputTokens(0);
+
+        assertThatThrownBy(missingInterviewCap::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Invalid public RAG guard limits.");
     }
 
     private PublicRagGuardProperties enabledProperties() {
