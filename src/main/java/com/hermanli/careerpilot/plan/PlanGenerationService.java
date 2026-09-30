@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -18,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 
 @Service
 public class PlanGenerationService {
@@ -25,6 +27,8 @@ public class PlanGenerationService {
     public static final int MAXIMUM_ACTIVE_TASKS = 8;
     private static final String INVALID_PLAN_MESSAGE = "The plan could not be generated. Please try again.";
     private static final Logger LOGGER = LoggerFactory.getLogger(PlanGenerationService.class);
+    private static final Pattern NEGATED_QUANTIFICATION = Pattern.compile(
+            "\\b(?:non|no|not|without)[\\s-]+(?:a\\s+|any\\s+)?(?:quantified|measurable)\\s+(?:outcome|result|improvement)");
 
     private final PlanGenerator planGenerator;
     private final ObjectMapper objectMapper;
@@ -153,7 +157,7 @@ public class PlanGenerationService {
             LOGGER.warn("Preparation plan output rejected: INVALID_JSON");
             throw new InvalidPlanException();
         } catch (InvalidPlanException exception) {
-            LOGGER.warn("Preparation plan output rejected: SEMANTIC_VALIDATION");
+            LOGGER.warn("Preparation plan output rejected: SEMANTIC_VALIDATION rule={}", ruleLocation(exception));
             throw exception;
         } catch (RuntimeException exception) {
             LOGGER.warn("Preparation plan output rejected: GENERATOR_OR_VALIDATION_RUNTIME");
@@ -169,37 +173,67 @@ public class PlanGenerationService {
         Map<String, NormalizedGap> gapsByFocusArea = normalizedGaps.byFocusArea();
         priorTasks.forEach(task -> priorTitles.add(normalize(task.title())));
 
-        List<PlanTaskDraft> tasks = draft.tasks().stream().map(task -> {
-            Evidence requestedEvidence = allowedEvidence.get(normalize(task.sourceEvidence()));
-            NormalizedGap gap = gapsByFocusArea.get(task.focusArea());
-            if (requestedEvidence == null || gap == null || priorTitles.contains(normalize(task.title()))
-                    || !gap.containsEvidence(requestedEvidence.value())) {
-                throw new InvalidPlanException();
+        // Every rule still applies to every task, but one rejected task no longer discards the valid rest of the
+        // plan. The plan fails only when no task passes.
+        List<PlanTaskDraft> tasks = new ArrayList<>();
+        for (PlanTaskDraft task : draft.tasks()) {
+            try {
+                tasks.add(canonicalTask(task, allowedEvidence, priorTitles, focusAreas, protectedFocusAreas,
+                        gapsByFocusArea));
+                focusAreas.add(task.focusArea());
+            } catch (InvalidPlanException exception) {
+                LOGGER.warn("Preparation plan task dropped: rule={}", ruleLocation(exception));
             }
-            Evidence evidence = resolveEvidence(task, requestedEvidence, gap, allowedEvidence);
-            if (!focusAreas.add(task.focusArea())
-                    || protectedFocusAreas.contains(task.focusArea())) {
-                throw new InvalidPlanException();
+        }
+        if (tasks.isEmpty()) {
+            throw new InvalidPlanException();
+        }
+        return new PlanDraft(draft.title(), draft.summary(), List.copyOf(tasks));
+    }
+
+    private PlanTaskDraft canonicalTask(PlanTaskDraft task, Map<String, Evidence> allowedEvidence,
+                                        Set<String> priorTitles, Set<String> acceptedFocusAreas,
+                                        Set<String> protectedFocusAreas, Map<String, NormalizedGap> gapsByFocusArea) {
+        Evidence requestedEvidence = allowedEvidence.get(normalize(task.sourceEvidence()));
+        NormalizedGap gap = gapsByFocusArea.get(task.focusArea());
+        if (requestedEvidence == null || gap == null || priorTitles.contains(normalize(task.title()))
+                || !gap.containsEvidence(requestedEvidence.value())) {
+            throw new InvalidPlanException();
+        }
+        Evidence evidence = resolveEvidence(task, requestedEvidence, gap, allowedEvidence);
+        if (acceptedFocusAreas.contains(task.focusArea())
+                || protectedFocusAreas.contains(task.focusArea())) {
+            throw new InvalidPlanException();
+        }
+        if (Set.of("RESUME_APPLICATION", "INTERVIEW_STORY").contains(task.taskType())
+                && (!evidence.supportsExperienceClaim() || !gap.positiveEvidence().contains(evidence.value()))) {
+            throw new InvalidPlanException();
+        }
+        validateEvidenceAwareSelection(task, evidence, gap);
+        if ("TDD".equals(task.focusArea()) && Set.of("RESUME_APPLICATION", "INTERVIEW_STORY").contains(task.taskType())
+                && !isConfirmedTddEvidence(evidence)) {
+            throw new InvalidPlanException();
+        }
+        if ("CLOUD_COMPUTING".equals(task.focusArea()) && "RESUME_APPLICATION".equals(task.taskType())
+                && !hasConfirmedCloudPlatform(evidence)) {
+            throw new InvalidPlanException();
+        }
+        return new PlanTaskDraft(
+                task.title(), task.description(), task.dayOffset(), calibratedPriority(task, evidence),
+                evidence.value(), task.focusArea(), task.taskType(), task.deliverable()
+        );
+    }
+
+    /** The validation rule that rejected a task, as method:line only - never task or Resume content. */
+    static String ruleLocation(InvalidPlanException exception) {
+        for (StackTraceElement frame : exception.getStackTrace()) {
+            String className = frame.getClassName();
+            if (className.equals(PlanGenerationService.class.getName())
+                    || className.startsWith(PlanGenerationService.class.getName() + "$")) {
+                return frame.getMethodName() + ":" + frame.getLineNumber();
             }
-            if (Set.of("RESUME_APPLICATION", "INTERVIEW_STORY").contains(task.taskType())
-                    && (!evidence.supportsExperienceClaim() || !gap.positiveEvidence().contains(evidence.value()))) {
-                throw new InvalidPlanException();
-            }
-            validateEvidenceAwareSelection(task, evidence, gap);
-            if ("TDD".equals(task.focusArea()) && Set.of("RESUME_APPLICATION", "INTERVIEW_STORY").contains(task.taskType())
-                    && !isConfirmedTddEvidence(evidence)) {
-                throw new InvalidPlanException();
-            }
-            if ("CLOUD_COMPUTING".equals(task.focusArea()) && "RESUME_APPLICATION".equals(task.taskType())
-                    && !hasConfirmedCloudPlatform(evidence)) {
-                throw new InvalidPlanException();
-            }
-            return new PlanTaskDraft(
-                    task.title(), task.description(), task.dayOffset(), calibratedPriority(task, evidence),
-                    evidence.value(), task.focusArea(), task.taskType(), task.deliverable()
-            );
-        }).toList();
-        return new PlanDraft(draft.title(), draft.summary(), tasks);
+        }
+        return "unknown";
     }
 
     private Evidence resolveEvidence(PlanTaskDraft task, Evidence requestedEvidence, NormalizedGap gap,
@@ -448,7 +482,9 @@ public class PlanGenerationService {
     }
 
     private boolean requestsQuantifiedOutcome(String taskText) {
-        return containsAny(taskText, "quantified outcome", "quantify the outcome", "add a metric", "include a metric",
+        // "non-quantified result" or "without a measurable result" explicitly asks for no metric.
+        String affirmativeText = NEGATED_QUANTIFICATION.matcher(taskText).replaceAll(" ");
+        return containsAny(affirmativeText, "quantified outcome", "quantify the outcome", "add a metric", "include a metric",
                 "quantified result", "quantified improvement", "percentage improvement", "time saved",
                 "number of users", "measurable result");
     }

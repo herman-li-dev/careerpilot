@@ -371,7 +371,9 @@ and plans with no generable gap never reach the guard. Otherwise a verified Cler
 public RAG guard (`503 AI_UNAVAILABLE`) are required, and one daily request is reserved for the single model
 attempt. Guard rejections return `429` or `400` with the shared `PUBLIC_RAG_*` codes before any model call.
 
-Plan generation treats 14 days as a scheduling window, not a task count. It creates at most one task per
+Plan generation validates every generated task independently against all canonical-gap, evidence, task-type,
+and deliverable rules. A task that fails any rule is dropped and the valid tasks are kept; generation is
+rejected only when no task passes. Plan generation treats 14 days as a scheduling window, not a task count. It creates at most one task per
 canonical gap and supports the internal task types `RESUME_APPLICATION`, `INTERVIEW_STORY`,
 `EVIDENCE_VERIFICATION`, and `CONCEPT_LEARNING`. If initial plan generation fails semantic validation
 twice, the analysis workflow validates and persists a deterministic evidence-verification fallback instead

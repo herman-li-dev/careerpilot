@@ -17,6 +17,7 @@ import com.hermanli.careerpilot.ai.AiUnavailableException;
 import com.hermanli.careerpilot.identity.AuthenticationRequiredException;
 import com.hermanli.careerpilot.publicrag.PublicRagGuardProperties;
 import com.hermanli.careerpilot.publicrag.PublicRagGuardService;
+import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -168,12 +169,15 @@ public class InterviewPreparationService {
                         .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                         .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                         .readValue(removeCodeFence(generated));
-                if (!validator.validate(generatedDraft).isEmpty()) {
-                    throw reject(InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE);
+                Set<ConstraintViolation<GeneratedInterviewPreparationDraft>> violations = validator.validate(generatedDraft);
+                if (!violations.isEmpty()) {
+                    logRejected(InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, attempt + 1,
+                            constraintDetail(violations));
+                    continue;
                 }
                 return validate(resolveEvidenceIds(generatedDraft, evidence), evidence);
             } catch (JsonProcessingException exception) {
-                logRejected(InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, attempt + 1);
+                logRejected(InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, attempt + 1, jsonDetail(exception));
             } catch (InvalidInterviewQuestionException exception) {
                 logRejected(exception.category(), attempt + 1);
             } catch (RuntimeException exception) {
@@ -342,6 +346,49 @@ public class InterviewPreparationService {
 
     private void logRejected(InterviewOutputRejectionCategory category, int attempt) {
         LOGGER.warn("Interview preparation output rejected: {} attempt={}", category, attempt);
+    }
+
+    private void logRejected(InterviewOutputRejectionCategory category, int attempt, String detail) {
+        LOGGER.warn("Interview preparation output rejected: {} attempt={} detail={}", category, attempt, detail);
+    }
+
+    // Diagnostic details name only schema paths, constraint types and JSON keys, never question or Resume text.
+    static String constraintDetail(Set<? extends ConstraintViolation<?>> violations) {
+        return violations.stream()
+                .map(violation -> violation.getPropertyPath().toString().replaceAll("\\[\\d+]", "[]") + ":"
+                        + violation.getConstraintDescriptor().getAnnotation().annotationType().getSimpleName())
+                .distinct()
+                .sorted()
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
+    static String jsonDetail(JsonProcessingException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            // Databind wraps an early end of input, so check the whole chain and the parser's own wording.
+            if (cause instanceof com.fasterxml.jackson.core.io.JsonEOFException
+                    || (cause.getMessage() != null && cause.getMessage().contains("end-of-input"))) {
+                return "TRUNCATED";
+            }
+        }
+        if (exception instanceof com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException unknown) {
+            return "UNKNOWN_FIELD:" + safeKey(unknown.getPropertyName());
+        }
+        if (exception instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException invalid) {
+            return "INVALID_VALUE:" + safeKey(invalid.getPath().isEmpty() ? null
+                    : invalid.getPath().getLast().getFieldName());
+        }
+        if (exception.getMessage() != null && exception.getMessage().startsWith("Duplicate field")) {
+            return "DUPLICATE_FIELD";
+        }
+        return exception.getClass().getSimpleName();
+    }
+
+    private static String safeKey(String key) {
+        if (key == null) {
+            return "unknown";
+        }
+        String safe = key.replaceAll("[^A-Za-z0-9_]", "");
+        return safe.length() > 40 ? safe.substring(0, 40) : safe;
     }
 
     private record EvidenceContext(

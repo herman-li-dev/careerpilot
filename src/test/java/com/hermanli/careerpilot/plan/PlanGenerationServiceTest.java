@@ -65,15 +65,59 @@ class PlanGenerationServiceTest {
     }
 
     @Test
-    void rejectsTwoTasksForTheSameCanonicalGap() {
+    void keepsOnlyTheFirstValidTaskForACanonicalGap() {
         PlanGenerationService service = serviceFor("""
                 {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
                 {"title":"Verify cloud","description":"Verify actual cloud use.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Cloud Computing","focusArea":"CLOUD_COMPUTING","taskType":"EVIDENCE_VERIFICATION","deliverable":"A yes/no conclusion"},
-                {"title":"Learn cloud","description":"Learn cloud basics.","dayOffset":2,"priority":"LOW","sourceEvidence":"Add cloud evidence","focusArea":"CLOUD_COMPUTING","taskType":"CONCEPT_LEARNING","deliverable":"One page of notes"}]}
+                {"title":"Learn cloud","description":"Learn cloud basics.","dayOffset":2,"priority":"LOW","sourceEvidence":"Cloud Computing","focusArea":"CLOUD_COMPUTING","taskType":"CONCEPT_LEARNING","deliverable":"One page of notes"}]}
                 """);
 
+        PlanDraft plan = service.generate(REPORT, JOB_DESCRIPTION_JSON);
+
+        assertEquals(List.of("Verify cloud"), plan.tasks().stream().map(PlanTaskDraft::title).toList());
+    }
+
+    @Test
+    void dropsOnlyTheInvalidTaskAndKeepsTheValidRestOfThePlan() {
+        PlanGenerationService service = serviceFor("""
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Invented task","description":"Do something unsupported.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Kubernetes","focusArea":"CLOUD_COMPUTING","taskType":"CONCEPT_LEARNING","deliverable":"One page of notes"},
+                {"title":"Learn API concepts","description":"Learn API concepts and document an endpoint.","dayOffset":3,"priority":"MEDIUM","sourceEvidence":"Build APIs","focusArea":"INTEGRATION","taskType":"CONCEPT_LEARNING","deliverable":"One page of API notes with an endpoint example"}]}
+                """);
+
+        PlanDraft plan = service.generate(REPORT, JOB_DESCRIPTION_JSON);
+
+        assertEquals(List.of("Learn API concepts"), plan.tasks().stream().map(PlanTaskDraft::title).toList());
+    }
+
+    @Test
+    void doesNotTreatAnExplicitlyNonQuantifiedResultAsAMetricRequest() {
+        PlanGenerationService service = serviceFor("""
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Verify cloud","description":"Verify actual cloud use.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Cloud Computing","focusArea":"CLOUD_COMPUTING","taskType":"EVIDENCE_VERIFICATION","deliverable":"A yes/no conclusion with a non-quantified result"}]}
+                """);
+        PlanGenerationService quantified = serviceFor("""
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Verify cloud","description":"Verify actual cloud use.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Cloud Computing","focusArea":"CLOUD_COMPUTING","taskType":"EVIDENCE_VERIFICATION","deliverable":"A yes/no conclusion with a quantified result"}]}
+                """);
+
+        assertEquals(1, service.generate(REPORT, JOB_DESCRIPTION_JSON).tasks().size());
         assertThrows(PlanGenerationService.InvalidPlanException.class,
+                () -> quantified.generate(REPORT, JOB_DESCRIPTION_JSON));
+    }
+
+    @Test
+    void locatesTheRejectingRuleAsMethodAndLineOnly() {
+        PlanGenerationService service = serviceFor("""
+                {"title":"14-Day Plan","summary":"Improve evidence-based gaps.","tasks":[
+                {"title":"Invented task","description":"Do something unsupported.","dayOffset":1,"priority":"HIGH","sourceEvidence":"Kubernetes","focusArea":"CLOUD_COMPUTING","taskType":"CONCEPT_LEARNING","deliverable":"One page of notes"}]}
+                """);
+
+        PlanGenerationService.InvalidPlanException exception = assertThrows(PlanGenerationService.InvalidPlanException.class,
                 () -> service.generate(REPORT, JOB_DESCRIPTION_JSON));
+
+        assertTrue(PlanGenerationService.ruleLocation(exception).matches("validateAndCanonicalize:\\d+"));
+        assertEquals("unknown", PlanGenerationService.ruleLocation(new PlanGenerationService.InvalidPlanException()));
     }
 
     @Test

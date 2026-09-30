@@ -125,10 +125,17 @@ class InterviewPreparationServiceTest {
     @Test
     void rejectsDuplicateAndUnknownJsonFieldsTwiceWithoutPersistence() {
         Fixture duplicate = fixture(VALID_JSON.replace("\"questions\":[", "\"questions\":[],\"questions\":["));
-        assertRejectedTwice(duplicate, InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE);
+        assertRejectedTwice(duplicate, InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, "DUPLICATE_FIELD");
 
         Fixture unknown = fixture(VALID_JSON.replace("{\"questions\":[", "{\"unexpected\":true,\"questions\":["));
-        assertRejectedTwice(unknown, InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE);
+        assertRejectedTwice(unknown, InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, "UNKNOWN_FIELD:unexpected");
+
+        Fixture truncated = fixture(VALID_JSON.substring(0, VALID_JSON.length() / 2));
+        assertRejectedTwice(truncated, InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, "TRUNCATED");
+
+        Fixture tooFew = fixture("{\"questions\":[" + VALID_JSON.substring(VALID_JSON.indexOf('{', 2),
+                VALID_JSON.indexOf('}') + 1) + "]}");
+        assertRejectedTwice(tooFew, InterviewOutputRejectionCategory.INVALID_JSON_STRUCTURE, "questions:Size");
 
         Fixture whitespace = fixture(VALID_JSON.replace("\"sourceEvidenceId\":\"G1\"",
                 "\"sourceEvidenceId\":\" G1\""));
@@ -356,7 +363,15 @@ class InterviewPreparationServiceTest {
                 new PublicRagGuardProperties(), clerkEnabled), repository, generator, resumes);
     }
 
+    private void assertRejectedTwice(Fixture fixture, InterviewOutputRejectionCategory category, String detail) {
+        assertRejectedTwiceWithSuffix(fixture, " detail=" + detail, category);
+    }
+
     private void assertRejectedTwice(Fixture fixture, InterviewOutputRejectionCategory category) {
+        assertRejectedTwiceWithSuffix(fixture, "", category);
+    }
+
+    private void assertRejectedTwiceWithSuffix(Fixture fixture, String suffix, InterviewOutputRejectionCategory category) {
         ch.qos.logback.classic.Logger logger = interviewLogger();
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
@@ -367,8 +382,8 @@ class InterviewPreparationServiceTest {
             logger.detachAppender(appender);
         }
         assertEquals(List.of(
-                "Interview preparation output rejected: " + category + " attempt=1",
-                "Interview preparation output rejected: " + category + " attempt=2"
+                "Interview preparation output rejected: " + category + " attempt=1" + suffix,
+                "Interview preparation output rejected: " + category + " attempt=2" + suffix
         ), appender.list.stream().map(ILoggingEvent::getFormattedMessage).collect(Collectors.toList()));
         verify(fixture.generator, org.mockito.Mockito.times(2)).generate(any());
         verify(fixture.repository, never()).create(any(Long.class), any(Long.class), any(String.class), any());
