@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = "spring.flyway.enabled=true")
 @Tag("external")
@@ -28,6 +31,9 @@ class PublicRagQuotaIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     void migrationCreatesOnlyAnonymousDailyCounterColumns() {
@@ -79,6 +85,24 @@ class PublicRagQuotaIntegrationTest {
             assertThat(counter("USER", USER_KEY, "reserved_output_tokens")).isEqualTo(150);
         } finally {
             executor.shutdownNow();
+            deleteTestRows();
+        }
+    }
+
+    @Test
+    void reservationStaysChargedWhenTheCallersTransactionRollsBack() {
+        deleteTestRows();
+        try {
+            TransactionTemplate outerTransaction = new TransactionTemplate(transactionManager);
+            assertThatThrownBy(() -> outerTransaction.executeWithoutResult(status -> {
+                assertThat(quotaRepository.reserve(TEST_DATE, USER_KEY, 100, 50, 3, 100))
+                        .isEqualTo(PublicRagQuotaRepository.QuotaDecision.ALLOWED);
+                throw new IllegalStateException("synthetic failure after the model call");
+            })).isInstanceOf(IllegalStateException.class);
+
+            assertThat(requestCount("USER", USER_KEY)).isEqualTo(1);
+            assertThat(requestCount("GLOBAL", "GLOBAL")).isEqualTo(1);
+        } finally {
             deleteTestRows();
         }
     }

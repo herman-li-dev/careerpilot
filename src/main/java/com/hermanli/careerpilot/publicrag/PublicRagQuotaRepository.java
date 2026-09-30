@@ -2,6 +2,7 @@ package com.hermanli.careerpilot.publicrag;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -15,7 +16,9 @@ class PublicRagQuotaRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    @Transactional
+    // A reservation must stay charged even when a caller's surrounding transaction rolls back, and the global
+    // row lock must not be held while that caller waits on a model.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public QuotaDecision reserve(
             LocalDate usageDate,
             String principalKey,

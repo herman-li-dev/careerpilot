@@ -90,6 +90,25 @@ class CareerPlanSchemaMigrationTest {
     }
 
     @Test
+    void archivesOnlySnapshotTasksThatAreStillTodo() {
+        Inputs inputs = insertInputs("plan-regeneration-snapshot@example.com");
+        long planId = insertPlan(inputs.userId(), inputs.analysisReportId());
+        long snapshotStillTodo = insertTask(planId, "TODO");
+        long snapshotCompletedMeanwhile = insertTask(planId, "COMPLETED");
+        long reopenedOutsideSnapshot = insertTask(planId, "TODO");
+
+        assertEquals(1, planRepository.archiveTodoTasks(planId, inputs.userId(),
+                Set.of(snapshotStillTodo, snapshotCompletedMeanwhile)));
+        assertEquals(0, planRepository.archiveTodoTasks(planId, inputs.userId() + 1_000_000L,
+                Set.of(reopenedOutsideSnapshot)));
+
+        List<Long> currentIds = planRepository.findTasksByPlanIdAndUserId(planId, inputs.userId()).stream()
+                .map(PlanTask::id).toList();
+        assertEquals(List.of(snapshotCompletedMeanwhile, reopenedOutsideSnapshot).stream().sorted().toList(),
+                currentIds.stream().sorted().toList());
+    }
+
+    @Test
     void replacesFourteenLegacyCurrentTodoRowsAndReturnsAtMostEightCurrentTasks() {
         Inputs inputs = insertInputs("plan-regeneration-history@example.com");
         long planId = insertPlan(inputs.userId(), inputs.analysisReportId());
@@ -107,7 +126,7 @@ class CareerPlanSchemaMigrationTest {
         }
 
         assertEquals(15, planRepository.findTasksByPlanIdAndUserId(planId, inputs.userId()).size());
-        assertEquals(14, planRepository.archiveRemainingTasks(planId, inputs.userId()));
+        assertEquals(14, planRepository.archiveTodoTasks(planId, inputs.userId(), replacedIds));
         for (int day = 1; day <= 7; day++) {
             planRepository.createTask(planId, new PlanTaskDraft(
                     "Replacement " + day,
@@ -151,6 +170,16 @@ class CareerPlanSchemaMigrationTest {
                 analysisReportId,
                 "Synthetic plan",
                 "Synthetic plan summary"
+        );
+    }
+
+    private long insertTask(long planId, String status) {
+        return jdbcTemplate.queryForObject(
+                "insert into plan_task (career_plan_id, title, description, status, due_date, priority, source_evidence, completed_at) "
+                        + "values (?, ?, ?, ?, ?, 'MEDIUM', ?, case when ? = 'COMPLETED' then current_timestamp end) returning id",
+                Long.class,
+                planId, "Synthetic " + status + " task", "Synthetic task", status, LocalDate.of(2026, 9, 2),
+                "Cloud Computing", status
         );
     }
 

@@ -1,5 +1,6 @@
 package com.hermanli.careerpilot.plan;
 
+import com.hermanli.careerpilot.analysis.AnalysisReportRepository;
 import com.hermanli.careerpilot.analysis.AnalysisReportService;
 import com.hermanli.careerpilot.analysis.AnalysisReportView;
 import com.hermanli.careerpilot.analysis.AnalysisStatus;
@@ -34,9 +35,11 @@ class PlanServiceTest {
     private final AnalysisReportService analysisReportService = mock(AnalysisReportService.class);
     private final JobDescriptionRepository jobDescriptionRepository = mock(JobDescriptionRepository.class);
     private final PlanGenerationService planGenerationService = mock(PlanGenerationService.class);
+    private final PlanPersistenceService planPersistenceService =
+            new PlanPersistenceService(planRepository, mock(AnalysisReportRepository.class));
     private final PlanService planService = new PlanService(
             planRepository, analysisReportService, jobDescriptionRepository, planGenerationService,
-            new AiAvailability(true)
+            planPersistenceService, new AiAvailability(true)
     );
 
     @Test
@@ -95,13 +98,55 @@ class PlanServiceTest {
                 report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{\"requiredSkills\":[\"Cloud\"]}"));
         when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(existingTasks), eq(7))).thenReturn(replacement);
-        when(planRepository.archiveRemainingTasks(2L, 1L)).thenReturn(14);
+        when(planRepository.archiveTodoTasks(2L, 1L, oldTodoTasks.stream().map(PlanTask::id)
+                .collect(java.util.stream.Collectors.toSet()))).thenReturn(14);
 
         assertEquals(refreshed, planService.regenerateRemaining(1L, 2L));
         assertEquals(8, refreshed.size());
         assertEquals(0, refreshed.stream().filter(task -> oldTodoTasks.stream().anyMatch(old -> old.id() == task.id())).count());
-        verify(planRepository).archiveRemainingTasks(2L, 1L);
+        verify(planRepository).archiveTodoTasks(2L, 1L, oldTodoTasks.stream().map(PlanTask::id)
+                .collect(java.util.stream.Collectors.toSet()));
         verify(planRepository, times(7)).createTask(eq(2L), eq(replacementTask), any(LocalDate.class));
+    }
+
+    @Test
+    void callsTheModelBeforeArchivingOnlyTheSnapshotTodoTasks() {
+        CareerPlan plan = new CareerPlan(2L, 1L, 9L, "Plan", "Summary", (short) 14, "ACTIVE", Instant.EPOCH, Instant.EPOCH);
+        PlanTask todoA = task(3L, "TODO", null, null, LocalDate.now());
+        PlanTask todoB = task(4L, "TODO", null, null, LocalDate.now());
+        PlanTask completedC = task(5L, "COMPLETED", Instant.EPOCH, null, LocalDate.now());
+        MatchReport report = new MatchReport(50, List.of(), List.of(), List.of("Cloud"), List.of(), List.of(), List.of());
+        PlanTaskDraft replacementTask = new PlanTaskDraft(
+                "Cloud task", "Verify cloud evidence.", 1, "HIGH", "Cloud",
+                "CLOUD_COMPUTING", "EVIDENCE_VERIFICATION", "A yes/no conclusion"
+        );
+        List<PlanTask> refreshed = List.of(completedC, task(6L, "TODO", null, null, LocalDate.now()));
+        when(planRepository.findPlanByIdAndUserId(2L, 1L)).thenReturn(Optional.of(plan));
+        when(planRepository.findTasksByPlanIdAndUserId(2L, 1L)).thenReturn(List.of(todoA, todoB, completedC), refreshed);
+        when(analysisReportService.get(1L, 9L)).thenReturn(new AnalysisReportView(9L, 11L, 12L, AnalysisStatus.COMPLETED,
+                report, 2L, null, null, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH));
+        when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
+        when(planGenerationService.generateRemaining(eq(report), any(String.class), any(), eq(7)))
+                .thenReturn(new PlanDraft("Plan", "Summary", List.of(replacementTask)));
+        when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L, 4L))).thenReturn(2);
+
+        assertEquals(refreshed, planService.regenerateRemaining(1L, 2L));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(planGenerationService, planRepository);
+        order.verify(planGenerationService).generateRemaining(eq(report), any(String.class), any(), eq(7));
+        order.verify(planRepository).archiveTodoTasks(2L, 1L, java.util.Set.of(3L, 4L));
+        order.verify(planRepository).createTask(eq(2L), eq(replacementTask), any(LocalDate.class));
+    }
+
+    @Test
+    void keepsTheModelCallOutsideAnyTransactionAndTheReplacementInsideOne() throws Exception {
+        assertEquals(null, PlanService.class.getMethod("regenerateRemaining", long.class, long.class)
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+        assertEquals(null, PlanService.class
+                .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+        org.junit.jupiter.api.Assertions.assertNotNull(PlanPersistenceService.class.getMethod(
+                "replaceRemainingTasks", long.class, long.class, java.util.Set.class, List.class
+        ).getAnnotation(org.springframework.transaction.annotation.Transactional.class));
     }
 
     @Test
@@ -131,7 +176,7 @@ class PlanServiceTest {
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
         when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(List.of(firstTodo, secondTodo)), eq(8)))
                 .thenReturn(replacement);
-        when(planRepository.archiveRemainingTasks(2L, 1L)).thenReturn(1);
+        when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L, 4L))).thenReturn(1);
 
         assertThrows(InvalidPlanStateException.class, () -> planService.regenerateRemaining(1L, 2L));
         verify(planRepository, org.mockito.Mockito.never()).createTask(anyLong(), any(PlanTaskDraft.class), any(LocalDate.class));
@@ -158,7 +203,7 @@ class PlanServiceTest {
         when(jobDescriptionRepository.findCompletedParsedJsonByIdAndUserId(12L, 1L)).thenReturn(Optional.of("{}"));
         when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(List.of(todo)), eq(8)))
                 .thenReturn(replacement);
-        when(planRepository.archiveRemainingTasks(2L, 1L)).thenReturn(1);
+        when(planRepository.archiveTodoTasks(2L, 1L, java.util.Set.of(3L))).thenReturn(1);
 
         assertThrows(InvalidPlanStateException.class, () -> planService.regenerateRemaining(1L, 2L));
     }
@@ -175,7 +220,7 @@ class PlanServiceTest {
         when(planRepository.findTasksByPlanIdAndUserId(2L, 1L)).thenReturn(existingTasks);
 
         assertThrows(InvalidPlanStateException.class, () -> planService.regenerateRemaining(1L, 2L));
-        verify(planRepository, org.mockito.Mockito.never()).archiveRemainingTasks(2L, 1L);
+        verify(planRepository, org.mockito.Mockito.never()).archiveTodoTasks(anyLong(), anyLong(), any());
     }
 
     @Test
@@ -197,7 +242,7 @@ class PlanServiceTest {
         when(planGenerationService.generateRemaining(eq(report), any(String.class), eq(List.of()), eq(8))).thenReturn(generated);
 
         assertEquals(refreshed, planService.regenerateRemaining(1L, 2L));
-        verify(planRepository, org.mockito.Mockito.never()).archiveRemainingTasks(2L, 1L);
+        verify(planRepository).archiveTodoTasks(2L, 1L, java.util.Set.of());
         verify(planRepository).createTask(eq(2L), eq(generated.tasks().getFirst()), any(LocalDate.class));
     }
 
@@ -219,6 +264,7 @@ class PlanServiceTest {
                 analysisReportService,
                 jobDescriptionRepository,
                 planGenerationService,
+                planPersistenceService,
                 new AiAvailability(true, true)
         );
 

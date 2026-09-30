@@ -7,6 +7,9 @@ import java.time.LocalDate;
 import java.time.Instant;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -125,7 +128,15 @@ public class PlanRepository {
         );
     }
 
-    public int archiveRemainingTasks(long planId, long userId) {
+    public int archiveTodoTasks(long planId, long userId, Collection<Long> taskIds) {
+        if (taskIds.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(", ", Collections.nCopies(taskIds.size(), "?"));
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(planId);
+        arguments.add(userId);
+        arguments.addAll(taskIds);
         return jdbcTemplate.update(
                 """
                 update plan_task task
@@ -133,9 +144,9 @@ public class PlanRepository {
                 from career_plan plan
                 where task.career_plan_id = ? and plan.id = task.career_plan_id and plan.user_id = ?
                   and task.archived_at is null and task.status = 'TODO'
-                """,
-                planId,
-                userId
+                  and task.id in (%s)
+                """.formatted(placeholders),
+                arguments.toArray()
         );
     }
 

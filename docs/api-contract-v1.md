@@ -613,7 +613,9 @@ The input estimate counts each UTF-8 byte as one budget unit. This deliberately 
 model tokens and avoids tokenizer-specific undercounting without adding another runtime dependency. The
 provider request uses the reserved output value as its explicit maximum-output setting.
 
-Quota reservation is transactionally serialized in PostgreSQL. The database receives only a date-bound
+Quota reservation is transactionally serialized in PostgreSQL and always commits in its own transaction, so a
+caller's later rollback cannot undo a charge and the counter row lock is released before model work. The
+database receives only a date-bound
 HMAC-SHA256 principal key, request counts, and reserved token counts; it never receives the raw Clerk subject,
 email, Resume text, prompt, or model response. A reservation is intentionally conservative and remains counted
 after the permit is issued even if a later provider failure occurs. Closing the permit releases only the Java

@@ -20,6 +20,7 @@ public class PlanService {
     private final AnalysisReportService analysisReportService;
     private final JobDescriptionRepository jobDescriptionRepository;
     private final PlanGenerationService planGenerationService;
+    private final PlanPersistenceService planPersistenceService;
     private final AiAvailability aiAvailability;
 
     public PlanService(
@@ -27,12 +28,14 @@ public class PlanService {
             AnalysisReportService analysisReportService,
             JobDescriptionRepository jobDescriptionRepository,
             PlanGenerationService planGenerationService,
+            PlanPersistenceService planPersistenceService,
             AiAvailability aiAvailability
     ) {
         this.planRepository = planRepository;
         this.analysisReportService = analysisReportService;
         this.jobDescriptionRepository = jobDescriptionRepository;
         this.planGenerationService = planGenerationService;
+        this.planPersistenceService = planPersistenceService;
         this.aiAvailability = aiAvailability;
     }
 
@@ -64,7 +67,8 @@ public class PlanService {
         );
     }
 
-    @Transactional
+    // Deliberately not transactional: the model call must not hold a database transaction or connection. The task
+    // snapshot taken here is enforced by the short replacement transaction in PlanPersistenceService.
     public List<PlanTask> regenerateRemaining(long userId, long planId) {
         CareerPlan plan = get(userId, planId);
         aiAvailability.requireEnabled();
@@ -83,8 +87,7 @@ public class PlanService {
             throw new InvalidPlanStateException("There is no room for regenerated tasks in this plan.");
         }
         if (!emptyPlan && taskLimit == 0) {
-            archiveExpectedTasks(planId, userId, regenerableTasks.size());
-            return requireValidCurrentTasks(planId, userId, replacedTaskIds);
+            return planPersistenceService.replaceRemainingTasks(userId, planId, replacedTaskIds, List.of());
         }
         AnalysisReportView analysis = analysisReportService.get(userId, plan.analysisReportId());
         if (analysis.report() == null) {
@@ -96,30 +99,7 @@ public class PlanService {
         PlanDraft replacement = planGenerationService.generateRemaining(
                 analysis.report(), jobDescriptionJson, existingTasks, taskLimit
         );
-        if (!emptyPlan) {
-            archiveExpectedTasks(planId, userId, regenerableTasks.size());
-        }
-        LocalDate startDate = LocalDate.now(java.time.Clock.systemUTC());
-        replacement.tasks().forEach(task -> planRepository.createTask(
-                planId, task, startDate.plusDays(task.dayOffset() - 1L)
-        ));
-        return requireValidCurrentTasks(planId, userId, replacedTaskIds);
-    }
-
-    private void archiveExpectedTasks(long planId, long userId, int expectedCount) {
-        int archivedCount = planRepository.archiveRemainingTasks(planId, userId);
-        if (archivedCount != expectedCount) {
-            throw new InvalidPlanStateException("The remaining tasks changed while the plan was being regenerated.");
-        }
-    }
-
-    private List<PlanTask> requireValidCurrentTasks(long planId, long userId, Set<Long> replacedTaskIds) {
-        List<PlanTask> currentTasks = planRepository.findTasksByPlanIdAndUserId(planId, userId);
-        if (currentTasks.size() > PlanGenerationService.MAXIMUM_ACTIVE_TASKS
-                || currentTasks.stream().anyMatch(task -> replacedTaskIds.contains(task.id()))) {
-            throw new InvalidPlanStateException("The regenerated plan exceeds the current-task limit.");
-        }
-        return currentTasks;
+        return planPersistenceService.replaceRemainingTasks(userId, planId, replacedTaskIds, replacement.tasks());
     }
 
     private boolean isRegenerableTask(PlanTask task) {
